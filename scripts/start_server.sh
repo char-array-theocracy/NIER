@@ -9,6 +9,7 @@ sed "s|0___USER___0|$USER|g" "$TEMPLATE_CONFIG" > "$ACTUAL_CONFIG"
 # Check if all dynamic fastcgi programs are built if not build them.
 SRC_DIR="/home/$USER/NIER/src/RASPB-NIER/quick-apps"
 DEST_DIR="/home/$USER/NIER/assets/dynamic"
+mkdir -p $DEST_DIR
 
 # Compile each .c file in the source directory
 for c_file in "$SRC_DIR"/*.c; do

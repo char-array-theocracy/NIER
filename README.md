@@ -6,7 +6,7 @@
 ## Setup
 1. Clone repository into home folder - `git clone https://github.com/char-array-theocracy/NIER`
 2. Install dependencies
-3. Create users [click here!](#user-creation)
+3. [Create users](#user-creation)
 4. Run server using `./scripts/start_server.sh`
 ## User creation
 - User data is stored in `config/.htpasswd`. 
