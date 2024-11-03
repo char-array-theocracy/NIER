@@ -1,0 +1,45 @@
+server.modules = (
+    "mod_alias",
+    "mod_access",
+    "mod_accesslog",
+    "mod_auth",
+    "mod_authn_file",
+    "mod_rewrite",
+    "mod_setenv",
+    "mod_fastcgi"
+)
+debug.log-request-handling = "enable"
+auth.backend = "htpasswd"
+auth.backend.htpasswd.userfile = "/home/0___USER___0/NIER/config/.htpasswd"
+server.document-root = "/home/0___USER___0/NIER/assets" 
+
+#server.port = 80   # 80 is the default listening port number, if not otherwise specified
+# If running lighttpd earlier than lighttpd 1.4.71, uncomment (remove '#') to add the following:
+#mimetype.assign = (
+#  ".html" => "text/html", 
+#  ".txt" => "text/plain",
+#  ".jpg" => "image/jpeg",
+#  ".png" => "image/png" 
+#)
+
+static-file.exclude-extensions = ( ".fcgi", ".php", ".rb", "~", ".inc" )
+index-file.names = ( "index.html" )
+
+# Secure scopes
+auth.require = (
+    "/" => (
+        "method"  => "basic",
+        "realm"   => "Restricted Area",
+        "require" => "valid-user"
+    )
+)
+
+# Fastcgi
+fastcgi.server = (
+    "test.fcgi" => ((
+        "socket" => "/tmp/fcgi.sock",
+        "bin-path" => "/home/0___USER___0/NIER/assets/dynamic/test.fcgi",
+        "check-local" => "disable",
+        "max-procs" => 1
+    ))
+)
