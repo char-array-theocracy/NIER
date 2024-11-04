@@ -36,10 +36,10 @@ auth.require = (
 
 # Fastcgi
 fastcgi.server = (
-    "test.fcgi" => ((
+    "relay.fcgi" => ((
         "socket" => "/tmp/fcgi.sock",
-        "bin-path" => "/home/0___USER___0/NIER/assets/dynamic/test.fcgi",
+        "bin-path" => "/home/0___USER___0/NIER/assets/dynamic/relay.fcgi",
         "check-local" => "disable",
-        "max-procs" => 1
-    ))
+        "max-procs" => 5
+    ))    
 )
