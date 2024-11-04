@@ -45,9 +45,6 @@ int main(void) {
 
         // Check if query string is present
         if (query_string != NULL) {
-            printf("<html><body>\n");
-            printf("<h1>Hello, FastCGI</h1>\n");
-
             // 5. Receive a response from the server
             int bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
             if (bytes_read > 0) {
