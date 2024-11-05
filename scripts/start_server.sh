@@ -5,12 +5,9 @@ set -euo pipefail
 USER_HOME="/home/$USER"
 TEMPLATE_CONFIG="$USER_HOME/NIER/config/lighttpd.conf.def"
 ACTUAL_CONFIG="$USER_HOME/NIER/config/lighttpd.conf"
-SRC_DIR="$USER_HOME/NIER/src/RASPB-NIER/quick-apps"
-DEST_DIR="$USER_HOME/NIER/assets/dynamic"
-BACKEND_SRC="$USER_HOME/NIER/src/RASPB-NIER/deamon-backend/main.c"
+BACKEND_SRC="$USER_HOME/NIER/src/RASPB-NIER"
 BACKEND_OUT="$USER_HOME/NIER/build/backend"
 
-mkdir -p "$DEST_DIR"
 mkdir -p "$(dirname "$BACKEND_OUT")"
 
 # Replace placeholder with user name and save to actual config
@@ -22,22 +19,9 @@ else
     exit 1
 fi
 
-# Compile each FCGI file in the source directory
-if compgen -G "$SRC_DIR"/*.c > /dev/null; then
-    for c_file in "$SRC_DIR"/*.c; do
-        base_name=$(basename "$c_file" .c)
-        output_file="$DEST_DIR/$base_name.fcgi"
-
-        gcc "$c_file" -o "$output_file" -lfcgi
-        echo "Compiled $c_file to $output_file successfully."
-    done
-else
-    echo "No .c files found in $SRC_DIR"
-fi
-
 # Compile backend
 echo "Building backend..."
-gcc "$BACKEND_SRC" -o "$BACKEND_OUT" -pthread
+gcc "$BACKEND_SRC/main.c" "$BACKEND_SRC/cJSON.c" "$BACKEND_SRC/responses.c" -o "$BACKEND_OUT" -lpthread -lfcgi
 echo "Backend built at $BACKEND_OUT"
 
 # Run backend in the background

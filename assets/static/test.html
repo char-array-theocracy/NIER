@@ -2,11 +2,26 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Query Interface</title>
+    <title>Universal JSON Query Interface</title>
     <script type="text/javascript">
         function sendQuery() {
-            var query = document.getElementById("query").value;
-            fetch('site/relay.fcgi?query=' + encodeURIComponent(query))
+            var prefix = document.getElementById("prefix").value;
+            var jsonInput = document.getElementById("query").value;
+
+            try {
+                // Parse the JSON input to ensure it is valid
+                var jsonData = JSON.parse(jsonInput);
+
+                // Add the prefix to the JSON data
+                jsonData.prefix = prefix;
+
+                fetch('/backend', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(jsonData) // Send the modified JSON data
+                })
                 .then(response => response.text())
                 .then(data => {
                     document.getElementById("result").value = data;
@@ -15,14 +30,24 @@
                     console.error('Error:', error);
                     document.getElementById("result").value = 'An error occurred while fetching the result.';
                 });
+            } catch (e) {
+                document.getElementById("result").value = 'Invalid JSON format. Please enter valid JSON.';
+                console.error('Invalid JSON:', e);
+            }
         }
     </script>
 </head>
 <body>
-    <h1>Query Interface</h1>
-    <label for="query">Enter your query:</label><br>
-    <textarea id="query" rows="10" cols="80" placeholder="Type your query here"></textarea><br><br>
+    <h1>Universal JSON Query Interface</h1>
+
+    <label for="prefix">Request Prefix:</label><br>
+    <input type="text" id="prefix" placeholder="Enter request prefix"><br><br>
+
+    <label for="query">Enter JSON data:</label><br>
+    <textarea id="query" rows="10" cols="80" placeholder='{"name": "John Doe", "age": 30}'></textarea><br><br>
+    
     <button onclick="sendQuery()">Submit Query</button><br><br>
+
     <label for="result">Result:</label><br>
     <textarea id="result" rows="10" cols="80" placeholder="The result will appear here"></textarea>
 </body>
