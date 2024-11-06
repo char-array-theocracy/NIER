@@ -15,7 +15,7 @@
             <img src="nier-logo.png" alt="NIER Logo">
         </div>
         <h2>Welcome to NIER</h2>
-        <form action="/login" method="post">
+        <form id="loginForm" action="/backend" method="post">
             <div class="input-group">
                 <input type="text" name="username" id="username" required autocomplete="off">
                 <label for="username">Username</label>
@@ -28,6 +28,40 @@
         </form>
     </div>
 </div>
+
+<script>
+document.getElementById("loginForm").addEventListener("submit", function(event) {
+    event.preventDefault(); // Prevent form's default submission behavior
+
+    // Get form data
+    const username = document.getElementById("username").value;
+    const password = document.getElementById("password").value;
+
+    // Format as JSON with the specified structure
+    const jsonData = {
+        prefix: "user_login",
+        username: username,
+        password: password
+    };
+
+    // Send JSON data to the backend
+    fetch("/backend", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(jsonData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Handle response data if needed
+        console.log("Success:", data);
+    })
+    .catch((error) => {
+        console.error("Error:", error);
+    });
+});
+</script>
 
 </body>
 </html>
