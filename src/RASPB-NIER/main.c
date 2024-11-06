@@ -16,8 +16,6 @@
 
 #define PATH_MAX 4096
 #define THREAD_COUNT 4  
-#define MAX_SESSIONS 50
-#define TOKEN_SIZE 32
 
 FILE *log_file;
 pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
