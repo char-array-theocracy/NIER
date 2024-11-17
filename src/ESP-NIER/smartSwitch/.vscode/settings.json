@@ -1,0 +1,17 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "idf.adapterTargetName": "esp32s3",
+    "idf.customExtraPaths": "/home/clem/.espressif/tools/xtensa-esp-elf-gdb/14.2_20240403/xtensa-esp-elf-gdb/bin:/home/clem/.espressif/tools/riscv32-esp-elf-gdb/14.2_20240403/riscv32-esp-elf-gdb/bin:/home/clem/.espressif/tools/xtensa-esp-elf/esp-14.2.0_20240906/xtensa-esp-elf/bin:/home/clem/.espressif/tools/riscv32-esp-elf/esp-14.2.0_20240906/riscv32-esp-elf/bin:/home/clem/.espressif/tools/esp32ulp-elf/2.38_20240113/esp32ulp-elf/bin:/home/clem/.espressif/tools/cmake/3.30.2/bin:/home/clem/.espressif/tools/openocd-esp32/v0.12.0-esp32-20241016/openocd-esp32/bin:/home/clem/.espressif/tools/ninja/1.12.1:/home/clem/.espressif/tools/esp-rom-elfs/20241011",
+    "idf.customExtraVars": {
+        "OPENOCD_SCRIPTS": "/home/clem/.espressif/tools/openocd-esp32/v0.12.0-esp32-20241016/openocd-esp32/share/openocd/scripts",
+        "ESP_ROM_ELF_DIR": "/home/clem/.espressif/tools/esp-rom-elfs/20241011/"
+    },
+    "idf.espIdfPath": "/home/clem/esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32s3-bridge.cfg"
+    ],
+    "idf.port": "/dev/ttyACM0",
+    "idf.pythonBinPath": "/home/clem/.espressif/python_env/idf5.5_py3.12_env/bin/python",
+    "idf.toolsPath": "/home/clem/.espressif",
+    "idf.flashType": "UART"
+}
