@@ -1,0 +1,4 @@
+listener 8883
+psk_hint NIER
+psk_file /home/0___USER___0/NIER/keys/test.psk
+allow_anonymous true

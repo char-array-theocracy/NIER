@@ -7,11 +7,23 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
+#include "mqtt_client.h"
+#include "esp_tls.h"
 
+#define BROKER_URI "mqtts://192.168.1.155"
 #define WIFI_SUCCESS BIT0
 #define MAX_FAILURES 10
 
-static wifi_config_t wifiConfig = {
+static const uint8_t s_key[] = { 0x74, 0x65, 0x73, 0x74 }; // test
+static const psk_hint_key_t psk_hint_key = {
+        .key = s_key,
+        .key_size = sizeof(s_key),
+        .hint = "NIER"
+        };
+
+
+
+static const wifi_config_t wifiConfig = {
     .sta = {
         .ssid = "Art",
         .password = "13214227",
@@ -32,6 +44,12 @@ static int sRetryNum = 0;
 
 static const char *TAG = "NIER";
 
+static void logErrorIfNonZero(const char *message, int error_code)
+{
+    if (error_code != 0) {
+        ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
+    }
+}
 
 static void wifiEventHandler(void* arg, esp_event_base_t eventBase,
                              int32_t eventId, void* eventData)
@@ -82,7 +100,7 @@ static void ipEventHandler(void* arg, esp_event_base_t eventBase,
     }
 }
 
-void connectWifi()
+static void connectWifi(void)
 {
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -110,6 +128,74 @@ void connectWifi()
 
 }
 
+static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
+                             int32_t eventId, void* eventData) 
+{
+    ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32, eventBase, eventId);
+    esp_mqtt_event_handle_t event = eventData;
+    esp_mqtt_client_handle_t client = event->client;
+    int messageId;
+    switch ((esp_mqtt_event_id_t)eventId) {
+    case MQTT_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+        messageId = esp_mqtt_client_subscribe(client, "/topic/qos0", 0);
+        ESP_LOGI(TAG, "sent subscribe successful, messageId=%d", messageId);
+
+        messageId = esp_mqtt_client_subscribe(client, "/topic/qos1", 1);
+        ESP_LOGI(TAG, "sent subscribe successful, messageId=%d", messageId);
+
+        messageId = esp_mqtt_client_unsubscribe(client, "/topic/qos1");
+        ESP_LOGI(TAG, "sent unsubscribe successful, messageId=%d", messageId);
+        break;
+    case MQTT_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        break;
+
+    case MQTT_EVENT_SUBSCRIBED:
+        ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, messageId=%d", event->msg_id);
+        messageId = esp_mqtt_client_publish(client, "/topic/qos0", "data", 0, 0, 0);
+        ESP_LOGI(TAG, "sent publish successful, messageId=%d", messageId);
+        break;
+    case MQTT_EVENT_UNSUBSCRIBED:
+        ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, messageId=%d", event->msg_id);
+        break;
+    case MQTT_EVENT_PUBLISHED:
+        ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, messageId=%d", event->msg_id);
+        break;
+    case MQTT_EVENT_DATA:
+        ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+        printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+        printf("DATA=%.*s\r\n", event->data_len, event->data);
+        break;
+    case MQTT_EVENT_ERROR:
+        ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+            logErrorIfNonZero("reported from esp-tls", event->error_handle->esp_tls_last_esp_err);
+            logErrorIfNonZero("reported from tls stack", event->error_handle->esp_tls_stack_err);
+            logErrorIfNonZero("captured as transport's socket errno",  event->error_handle->esp_transport_sock_errno);
+            ESP_LOGI(TAG, "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
+
+        }
+        break;
+    default:
+        ESP_LOGI(TAG, "Other event id:%d", event->event_id);
+        break;
+    }
+}
+
+static void mqttAppStart(void)
+{
+    const esp_mqtt_client_config_t mqtt_cfg = {
+        .broker.address.uri = BROKER_URI,
+        .broker.verification.psk_hint_key = &psk_hint_key,
+    };
+
+    ESP_LOGI(TAG, "[APP] Free memory: %" PRIu32 " bytes", esp_get_free_heap_size());
+    esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqtt_cfg);
+    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqttEventHandler, NULL);
+    esp_mqtt_client_start(client);
+}
+
 void app_main(void)
 {
     wifiEventGroup = xEventGroupCreate();
@@ -123,6 +209,8 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     connectWifi();
+
+    mqttAppStart();
 
     while (1) 
     {

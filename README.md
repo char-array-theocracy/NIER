@@ -1,7 +1,7 @@
 # NIER
 
 ## Dependencies
-`lighttpd, apache-utils(specifically htpasswd), fcgi, fcgi-devel`
+`lighttpd, apache-utils(specifically htpasswd), fcgi, fcgi-devel, mosquitto`
 
 ## Setup
 1. Clone repository into home folder - `git clone https://github.com/char-array-theocracy/NIER`
