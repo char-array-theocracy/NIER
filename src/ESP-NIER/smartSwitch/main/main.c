@@ -9,10 +9,17 @@
 #include "nvs_flash.h"
 #include "mqtt_client.h"
 #include "esp_tls.h"
+#include "driver/adc.h"
+#include "esp_adc_cal.h"
+
+#define ADC_CHANNEL ADC1_CHANNEL_0
+#define V_REF 3300                
+#define ADC_ATTEN ADC_ATTEN_DB_11
 
 #define BROKER_URI "mqtts://192.168.1.155"
 #define WIFI_SUCCESS BIT0
 #define MAX_FAILURES 10
+#define DEVICE_CHECK_PIN 2
 
 static const uint8_t s_key[] = { 0x74, 0x65, 0x73, 0x74 }; // test
 static const psk_hint_key_t psk_hint_key = {
@@ -124,6 +131,8 @@ static void connectWifi(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifiConfig));
     ESP_ERROR_CHECK(esp_wifi_start());
 
+    xEventGroupWaitBits(wifiEventGroup, WIFI_SUCCESS, pdFALSE, pdFALSE, pdMS_TO_TICKS(5000));
+
     ESP_LOGI(TAG, "STA initialization complete");
 
 }
@@ -196,6 +205,33 @@ static void mqttAppStart(void)
     esp_mqtt_client_start(client);
 }
 
+int identifyDevice(float voltage) {
+    if (voltage >= 3.05 && voltage <= 3.20) {
+        return 1;
+    } else if (voltage > 2.90 && voltage <= 3.05) {
+        return 2;
+    } else if (voltage > 2.75 && voltage <= 2.90) {
+        return 3;
+    } else if (voltage > 2.40 && voltage <= 2.60) {
+        return 4;
+    } else if (voltage > 2.00 && voltage <= 2.20) {
+        return 5;
+    } else if (voltage > 1.70 && voltage <= 1.90) {
+        return 6;
+    } else if (voltage > 1.50 && voltage <= 1.70) {
+        return 7;
+    } else if (voltage > 1.30 && voltage <= 1.50) {
+        return 8;
+    } else if (voltage > 1.10 && voltage <= 1.30) {
+        return 9;
+    } else if (voltage > 0.90 && voltage <= 1.10) {
+        return 10;
+    } else {
+        ESP_LOGE(TAG, "No valid device detected, either resistor is missing or something is broken.\n");
+        return 0;
+    }
+}
+
 void app_main(void)
 {
     wifiEventGroup = xEventGroupCreate();
@@ -212,10 +248,21 @@ void app_main(void)
 
     mqttAppStart();
 
+    esp_adc_cal_characteristics_t adc_chars;
+    adc1_config_width(ADC_WIDTH_BIT_12);
+    adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
+
+    int raw;
+    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &adc_chars);
+
     while (1) 
     {
-        vTaskDelay(pdMS_TO_TICKS(10000));
-        ESP_LOGI(TAG, "KEEP-ALIVE");
+        raw = adc1_get_raw(ADC_CHANNEL);
+        uint32_t voltage = esp_adc_cal_raw_to_voltage(raw, &adc_chars);
+        float gpio_voltage = voltage / 1000.0; 
+
+        ESP_LOGI(TAG, "Detected device: %d, U= %lf\n", identifyDevice(gpio_voltage), gpio_voltage);
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
     vEventGroupDelete(wifiEventGroup);
     ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, gotIpEventInstance));
