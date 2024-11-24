@@ -9,18 +9,20 @@
 #include "nvs_flash.h"
 #include "mqtt_client.h"
 #include "esp_tls.h"
-#include "driver/adc.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_adc_cal.h"
 #include "cJSON.h"
 #include "esp_timer.h"
+#include "driver/gpio.h"
 
 /* Definitions */
-#define ADC_CHANNEL ADC1_CHANNEL_0
+#define DETECT_ADC_CHANNEL ADC1_CHANNEL_6
 #define V_REF 3300                
-#define ADC_ATTEN ADC_ATTEN_DB_12
+#define DETECT_ADC_ATTEN ADC_ATTEN_DB_12
 #define BROKER_URI "mqtts://192.168.1.155"
 #define WIFI_SUCCESS BIT0
 #define MQTT_SUCCESS BIT0
+#define MQTT_MESSAGE_RECIEVED BIT1
 #define MAX_FAILURES 10
 #define KEEP_ALIVE_INTERVAL_IN_SECONDS 10
 
@@ -37,8 +39,8 @@ static const psk_hint_key_t psk_hint_key = {
 
 static const wifi_config_t wifiConfig = {
     .sta = {
-        .ssid = "Art",
-        .password = "13214227",
+        .ssid = "setec_astronomy",
+        .password = "mypassword",
         .threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK, 
         .pmf_cfg = {
             .capable = false, // Disabled PMF
@@ -47,6 +49,7 @@ static const wifi_config_t wifiConfig = {
     },
 };
 
+static QueueHandle_t mqttDeviceQueue;
 static const char base62Chars[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 /* WiFi stuff */
@@ -209,14 +212,6 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
             break;
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
-            messageId = esp_mqtt_client_subscribe(client, "/topic/qos0", 0);
-            ESP_LOGI(TAG, "Sent subscribe successful, messageId=%d", messageId);
-
-            messageId = esp_mqtt_client_subscribe(client, "/topic/qos1", 1);
-            ESP_LOGI(TAG, "Sent subscribe successful, messageId=%d", messageId);
-
-            messageId = esp_mqtt_client_unsubscribe(client, "/topic/qos1");
-            ESP_LOGI(TAG, "Sent unsubscribe successful, messageId=%d", messageId);
             xEventGroupSetBits(mqttEventGroup, MQTT_SUCCESS);
             break;
         case MQTT_EVENT_DISCONNECTED:
@@ -225,8 +220,6 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
 
         case MQTT_EVENT_SUBSCRIBED:
             ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, messageId=%d", event->msg_id);
-            messageId = esp_mqtt_client_publish(client, "/topic/qos0", "data", 0, 0, 0);
-            ESP_LOGI(TAG, "Sent publish successful, messageId=%d", messageId);
             break;
         case MQTT_EVENT_UNSUBSCRIBED:
             ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, messageId=%d", event->msg_id);
@@ -235,9 +228,15 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
             ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, messageId=%d", event->msg_id);
             break;
         case MQTT_EVENT_DATA:
-            ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-            printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-            printf("DATA=%.*s\r\n", event->data_len, event->data);
+            ESP_LOGI(TAG, "MQTT message recieved...");
+            char message[256] = {0};
+            memmove(message, event->data, 256);
+            message[event->data_len] = '\0';
+            if (xQueueSend(mqttDeviceQueue, &message, portMAX_DELAY) != pdTRUE) 
+            {
+                ESP_LOGW(TAG, "Failed to enqueue message");
+            }
+
             break;
         case MQTT_EVENT_ERROR:
             ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -301,64 +300,108 @@ esp_mqtt_client_handle_t mqttAppStart(void)
 
 int identifyDevice(void) 
 {
-    esp_adc_cal_characteristics_t adcChars;
-    adc1_config_width(ADC_WIDTH_BIT_12);
-    adc1_config_channel_atten(ADC_CHANNEL, ADC_ATTEN);
-    int raw;
-    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN, ADC_WIDTH_BIT_12, V_REF, &adcChars);
-    raw = adc1_get_raw(ADC_CHANNEL);
-    float voltage = (float)esp_adc_cal_raw_to_voltage(raw, &adcChars)/ 1000.0;
+    adc_oneshot_unit_handle_t adcHandle;
+    adc_oneshot_unit_init_cfg_t initConfig = {
+        .unit_id = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&initConfig, &adcHandle));
+    adc_oneshot_chan_cfg_t channelConfig = {
+    .bitwidth = ADC_BITWIDTH_DEFAULT,
+    .atten = DETECT_ADC_ATTEN,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adcHandle, DETECT_ADC_CHANNEL, &channelConfig));
+    float voltage = 0;
+    for (int i = 0; i < 5; i++) 
+    {
+        int temp;
+        ESP_ERROR_CHECK(adc_oneshot_read(adcHandle, DETECT_ADC_CHANNEL, &temp));
+        voltage += ((float)temp * 3.3) / 4095.0; 
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    voltage /= 5.0;
+    ESP_LOGI(TAG, "U: %f", voltage);
+    ESP_ERROR_CHECK(adc_oneshot_del_unit(adcHandle));
 
-    if (voltage >= 3.05 && voltage <= 3.20) 
+    if (voltage >= 3.11 && voltage <= 3.3) 
     {
         return 1;
     } 
-    else if (voltage > 2.90 && voltage <= 3.05) 
+    else if (voltage > 2.74 && voltage <= 3.01) 
     {
         return 2;
     } 
-    else if (voltage > 2.75 && voltage <= 2.90) 
+    else if (voltage > 2.52 && voltage <= 2.8) 
     {
         return 3;
     } 
-    else if (voltage > 2.40 && voltage <= 2.60) 
+    else if (voltage > 2.168 && voltage <= 2.447) 
     {
         return 4;
     } 
-    else if (voltage > 2.00 && voltage <= 2.20) 
+    else if (voltage > 1.81 && voltage <= 2.095) 
     {
         return 5;
     } 
-    else if (voltage > 1.70 && voltage <= 1.90) 
+    else if (voltage > 1.57 && voltage <= 1.8) 
     {
         return 6;
     } 
-    else if (voltage > 1.50 && voltage <= 1.70) 
-    {
-        return 7;
-    } 
-    else if (voltage > 1.30 && voltage <= 1.50) 
-    {
-        return 8;
-    } 
-    else if (voltage > 1.10 && voltage <= 1.30) 
-    {
-        return 9;
-    } 
-    else if (voltage > 0.90 && voltage <= 1.10) 
-    {
-        return 10;
-    } 
     else 
     {
-        ESP_LOGE(TAG, "No valid device detected, either resistor is missing or something is broken.\n");
         return 0;
     }
+}
+
+void smartSwitch(void *pvParamaters) 
+{
+    esp_mqtt_client_handle_t client = *(esp_mqtt_client_handle_t *)pvParamaters;
+    char *destination = calloc(strlen(deviceIdentifier) + 20, sizeof(char));
+    snprintf(destination, strlen(deviceIdentifier) + 20, "device/%s/switch", deviceIdentifier);
+    ESP_LOGI(TAG, "Subscribed to topic: %s", destination);
+    esp_mqtt_client_subscribe_single(client, destination, 1);
+    const char on[] = "1"; 
+    const char off[] = "0"; 
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << GPIO_NUM_44),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_conf);
+
+    while (1) 
+    {
+        char message[256];
+        if (xQueueReceive(mqttDeviceQueue, &message, portMAX_DELAY) != pdTRUE) 
+        { 
+            ESP_LOGW(TAG, "Failed to recieve enqueued message");
+        }
+        int state = (int)strtol(message, NULL, 10);
+        switch (state) 
+        {
+            case (0):
+            gpio_set_level(GPIO_NUM_44, 0);
+            break;
+            case (1):
+            gpio_set_level(GPIO_NUM_44, 1);
+            break;
+            default:
+            ESP_LOGW(TAG, "Unknown switch state");
+        }
+        ESP_LOGI(TAG, "Switch message recieved %d", (int)strtol(message, NULL, 10));
+
+        vTaskDelay(pdMS_TO_TICKS(60)); 
+    }
+    free(destination);        
 }
 
 void app_main(void)
 {
     esp_log_level_set("wifi", ESP_LOG_DEBUG);
+
+    mqttDeviceQueue = xQueueCreate(10, sizeof(char)*256);
 
     wifiEventGroup = xEventGroupCreate();
     mqttEventGroup = xEventGroupCreate();
@@ -377,11 +420,23 @@ void app_main(void)
     deviceIdentifier = acquireIdentifier();
     ESP_LOGI(TAG, "Device identifier: %s", deviceIdentifier);
 
+    EventBits_t bits = xEventGroupWaitBits(mqttEventGroup, MQTT_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
+    if (bits & MQTT_SUCCESS)
+    {
+        ESP_LOGI(TAG, "Connected to mqtt broker");
+        xTaskCreate(mqttKeepAlive, "mqttKeepAlive", 4096, &client, tskIDLE_PRIORITY + 1, &mqttKeepAliveTaskHandle);
+    }
+    else
+    {
+        ESP_LOGE(TAG, "Failed to connect to mqtt broker");
+    }
+
     deviceType = identifyDevice();
     switch (deviceType) 
     {
         case 1:
             ESP_LOGI(TAG, "Detected device-type: %d", deviceType);
+            xTaskCreate(smartSwitch, "smartSwitch", 4096, &client, tskIDLE_PRIORITY + 2, &deviceTaskHandle);
             break;
         case 2:
             ESP_LOGI(TAG, "Detected device-type: %d", deviceType); 
@@ -403,42 +458,16 @@ void app_main(void)
             ESP_LOGI(TAG, "Detected device-type: %d", deviceType); 
             ESP_LOGW(TAG, "This device-type is not implemented yet...");
             break;
-        case 7:
-            ESP_LOGI(TAG, "Detected device-type: %d", deviceType); 
-            ESP_LOGW(TAG, "This device-type is not implemented yet...");
-            break;
-        case 8:
-            ESP_LOGI(TAG, "Detected device-type: %d", deviceType); 
-            ESP_LOGW(TAG, "This device-type is not implemented yet...");
-            break;
-        case 9:
-            ESP_LOGI(TAG, "Detected device-type: %d", deviceType); 
-            ESP_LOGW(TAG, "This device-type is not implemented yet...");
-            break;
-        case 10:
-            ESP_LOGI(TAG, "Detected device-type: %d", deviceType); 
-            ESP_LOGW(TAG, "This device-type is not implemented yet...");
-            break;
         default:
             ESP_LOGE(TAG, "Unknown device type.");
             break;
     }
-    EventBits_t bits = xEventGroupWaitBits(mqttEventGroup, MQTT_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
-    if (bits & MQTT_SUCCESS)
-    {
-        ESP_LOGI(TAG, "Connected to mqtt broker");
-        xTaskCreate(mqttKeepAlive, "mqttKeepAlive", 4096, &client, tskIDLE_PRIORITY + 1, &mqttKeepAliveTaskHandle);
-    }
-    else
-    {
-        ESP_LOGE(TAG, "Failed to connect to mqtt broker");
-    }
+
     while (1) 
     {
         ESP_LOGI(TAG, "KEE{P}");
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(3000));
     }
-
     vEventGroupDelete(wifiEventGroup);
     ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, gotIpEventInstance));
     ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifiHandlerEventInstance));
