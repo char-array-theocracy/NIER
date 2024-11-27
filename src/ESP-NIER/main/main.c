@@ -24,7 +24,7 @@
 #define MQTT_SUCCESS BIT0
 #define MQTT_MESSAGE_RECIEVED BIT1
 #define MAX_FAILURES 10
-#define KEEP_ALIVE_INTERVAL_IN_SECONDS 10
+#define KEEP_ALIVE_INTERVAL_IN_SECONDS 4
 
 /* Out-of-scope */
 static const char *TAG = "NIER";
@@ -39,8 +39,8 @@ static const psk_hint_key_t psk_hint_key = {
 
 static const wifi_config_t wifiConfig = {
     .sta = {
-        .ssid = "setec_astronomy",
-        .password = "mypassword",
+        .ssid = "Art",
+        .password = "13214227",
         .threshold.authmode = WIFI_AUTH_WPA_WPA2_PSK, 
         .pmf_cfg = {
             .capable = false, // Disabled PMF
@@ -164,7 +164,7 @@ void mqttKeepAlive(void *pvParamaters)
 {
     esp_mqtt_client_handle_t client = *(esp_mqtt_client_handle_t *)pvParamaters;        
     char *destination = calloc(strlen(deviceIdentifier) + 20, sizeof(char));
-    snprintf(destination, strlen(deviceIdentifier) + 20, "device/%s/status", deviceIdentifier);
+    snprintf(destination, strlen(deviceIdentifier) + 20, "devices/%s/status", deviceIdentifier);
     while(1) 
     {
         cJSON *message = cJSON_CreateObject();
@@ -179,13 +179,13 @@ void mqttKeepAlive(void *pvParamaters)
         cJSON_AddNumberToObject(message, "heapTotal", heap_caps_get_total_size(MALLOC_CAP_DEFAULT));
         cJSON_AddNumberToObject(message, "heapUsed", esp_get_free_heap_size());
         cJSON_AddNumberToObject(message, "deviceType", deviceType);
-        char *json_string = cJSON_PrintUnformatted(message);
-        if (json_string == NULL) 
+        char *jsonString = cJSON_PrintUnformatted(message);
+        if (jsonString == NULL) 
         {
             ESP_LOGE(TAG, "Failed to print JSON");
         }
 
-        int msg_id = esp_mqtt_client_publish(client, destination, json_string, 0, 1, 1);
+        int msg_id = esp_mqtt_client_publish(client, destination, jsonString, 0, 1, 1);
         if (msg_id != -1) 
         {
             ESP_LOGI(TAG, "Sent keep-alive, msg_id=%d", msg_id);
@@ -211,7 +211,22 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
             ESP_LOGI(TAG, "MQTT_EVENT_BEFORE_CONNECT");
             break;
         case MQTT_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
+            ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");        
+            cJSON *connectionMessage = cJSON_CreateObject();
+            if (connectionMessage == NULL) 
+            {
+                ESP_LOGE(TAG, "Failed to create a JSON object");
+            }
+            cJSON_AddStringToObject(connectionMessage, "deviceId", deviceIdentifier);
+            cJSON_AddNumberToObject(connectionMessage, "status", 1);
+            char *jsonString = cJSON_PrintUnformatted(connectionMessage);
+            if (jsonString == NULL) 
+            {
+                ESP_LOGE(TAG, "Failed to print JSON");
+            }
+
+            esp_mqtt_client_publish(client, "devices/presence", jsonString, 0, 2, 1);
+            cJSON_Delete(connectionMessage);
             xEventGroupSetBits(mqttEventGroup, MQTT_SUCCESS);
             break;
         case MQTT_EVENT_DISCONNECTED:
@@ -229,12 +244,33 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
             break;
         case MQTT_EVENT_DATA:
             ESP_LOGI(TAG, "MQTT message recieved...");
-            char message[256] = {0};
-            memmove(message, event->data, 256);
-            message[event->data_len] = '\0';
-            if (xQueueSend(mqttDeviceQueue, &message, portMAX_DELAY) != pdTRUE) 
+            cJSON *recievedMessage = cJSON_Parse(event->data);
+            if (recievedMessage == NULL) 
             {
-                ESP_LOGW(TAG, "Failed to enqueue message");
+                ESP_LOGW(TAG, "Failed to parse recieved JSON message");
+                return;
+            } 
+            cJSON *recievedDeviceIdentifier = cJSON_GetObjectItemCaseSensitive(recievedMessage, "deviceId");
+            
+            if (cJSON_IsString(recievedDeviceIdentifier)) 
+            {
+                if (strncmp(recievedDeviceIdentifier->valuestring, deviceIdentifier, strlen(recievedDeviceIdentifier->valuestring)) == 0 ) 
+                {
+                    if (xQueueSend(mqttDeviceQueue, &recievedMessage, portMAX_DELAY) != pdTRUE) 
+                    {
+                        ESP_LOGW(TAG, "Failed to enqueue message");
+                        cJSON_Delete(recievedMessage);  
+                    }
+                } 
+                else 
+                {
+                    ESP_LOGI(TAG, "Device identifiers don't match, ignoring message");
+                }
+            } 
+            else
+            {
+                ESP_LOGW(TAG, "Parsing the device identifier failed");
+                return;                
             }
 
             break;
@@ -356,12 +392,7 @@ int identifyDevice(void)
 void smartSwitch(void *pvParamaters) 
 {
     esp_mqtt_client_handle_t client = *(esp_mqtt_client_handle_t *)pvParamaters;
-    char *destination = calloc(strlen(deviceIdentifier) + 20, sizeof(char));
-    snprintf(destination, strlen(deviceIdentifier) + 20, "device/%s/switch", deviceIdentifier);
-    ESP_LOGI(TAG, "Subscribed to topic: %s", destination);
-    esp_mqtt_client_subscribe_single(client, destination, 1);
-    const char on[] = "1"; 
-    const char off[] = "0"; 
+    esp_mqtt_client_subscribe_single(client, "devices/calls", 1);
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << GPIO_NUM_44),
         .mode = GPIO_MODE_OUTPUT,
@@ -373,35 +404,65 @@ void smartSwitch(void *pvParamaters)
 
     while (1) 
     {
-        char message[256];
-        if (xQueueReceive(mqttDeviceQueue, &message, portMAX_DELAY) != pdTRUE) 
+        cJSON *recievedMessage = NULL;
+        if (xQueueReceive(mqttDeviceQueue, &recievedMessage, portMAX_DELAY) != pdTRUE) 
         { 
-            ESP_LOGW(TAG, "Failed to recieve enqueued message");
+            ESP_LOGW(TAG, "Failed to receive enqueued message");
+            continue; 
         }
-        int state = (int)strtol(message, NULL, 10);
+        if (recievedMessage == NULL) 
+        {
+            ESP_LOGW(TAG, "JSON received by the switch task is invalid");
+            continue; 
+        } 
+
+        cJSON *recievedCall = cJSON_GetObjectItemCaseSensitive(recievedMessage, "call");
+        if (recievedCall == NULL || recievedCall->valuestring == NULL) 
+        {
+            ESP_LOGW(TAG, "Failed to parse call object or valuestring is NULL");
+            cJSON_Delete(recievedMessage);
+            continue;
+        }
+
+        if (strcmp(recievedCall->valuestring, "switch") != 0) 
+        {
+            ESP_LOGI(TAG, "Device is a switch, %s is incompatible", recievedCall->valuestring);
+            cJSON_Delete(recievedMessage);
+            continue;
+        } 
+
+        cJSON *recievedState = cJSON_GetObjectItemCaseSensitive(recievedMessage, "state");
+        if (recievedState == NULL) 
+        {
+            ESP_LOGW(TAG, "Failed to parse switch state");
+            cJSON_Delete(recievedMessage);
+            continue;
+        } 
+
+        int state = recievedState->valueint;
         switch (state) 
         {
-            case (0):
-            gpio_set_level(GPIO_NUM_44, 0);
-            break;
-            case (1):
-            gpio_set_level(GPIO_NUM_44, 1);
-            break;
+            case 0:
+                gpio_set_level(GPIO_NUM_44, 0);
+                break;
+            case 1:
+                gpio_set_level(GPIO_NUM_44, 1);
+                break;
             default:
-            ESP_LOGW(TAG, "Unknown switch state");
+                ESP_LOGW(TAG, "Unknown switch state");
         }
-        ESP_LOGI(TAG, "Switch message recieved %d", (int)strtol(message, NULL, 10));
+        ESP_LOGI(TAG, "Switch message received %d", state);
 
-        vTaskDelay(pdMS_TO_TICKS(60)); 
+        cJSON_Delete(recievedMessage);
     }
-    free(destination);        
 }
+
 
 void app_main(void)
 {
     esp_log_level_set("wifi", ESP_LOG_DEBUG);
 
-    mqttDeviceQueue = xQueueCreate(10, sizeof(char)*256);
+    mqttDeviceQueue = xQueueCreate(10, sizeof(cJSON *));
 
     wifiEventGroup = xEventGroupCreate();
     mqttEventGroup = xEventGroupCreate();
