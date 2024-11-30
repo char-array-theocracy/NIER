@@ -22,7 +22,8 @@
 #define DETECT_ADC_ATTEN ADC_ATTEN_DB_12
 #define BROKER_URI "mqtts://192.168.1.155"
 #define WIFI_SUCCESS BIT0
-#define MQTT_SUCCESS BIT0
+#define MQTT_SUCCESS BIT1
+#define TIME_SYNC_SUCCESS BIT2
 #define MQTT_MESSAGE_RECIEVED BIT1
 #define MAX_FAILURES 10
 #define KEEP_ALIVE_INTERVAL_IN_SECONDS 4
@@ -60,8 +61,7 @@ static const char base62Chars[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi
 static int wifiSuccessfulConnections = 0;
 static esp_event_handler_instance_t wifiHandlerEventInstance;    
 static esp_event_handler_instance_t gotIpEventInstance;
-static EventGroupHandle_t wifiEventGroup;
-static EventGroupHandle_t mqttEventGroup;
+static EventGroupHandle_t theEventGroup;
 static int retryNum = 0;
 
 /* Task Handles */
@@ -71,6 +71,7 @@ static TaskHandle_t mqttKeepAliveTaskHandle = NULL;
 static void timeSyncNotification(struct timeval *tv)
 {
     ESP_LOGI(TAG, "Time synchronized with NTP server");
+    xEventGroupSetBits(theEventGroup, TIME_SYNC_SUCCESS);
 }
 
 static void initializeSNTP(void) 
@@ -105,7 +106,7 @@ static void wifiEventHandler(void* arg, esp_event_base_t eventBase,
     {
         if (retryNum < MAX_FAILURES)
         {   
-            xEventGroupClearBits(wifiEventGroup, WIFI_SUCCESS);
+            xEventGroupClearBits(theEventGroup, WIFI_SUCCESS);
             if (wifiSuccessfulConnections > 0) 
             {
                 ESP_LOGE(TAG, "Lost connection to AP");
@@ -141,7 +142,7 @@ static void ipEventHandler(void* arg, esp_event_base_t eventBase,
     {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) eventData;
         ESP_LOGI(TAG, "STA IP: " IPSTR, IP2STR(&event->ip_info.ip));
-        xEventGroupSetBits(wifiEventGroup, WIFI_SUCCESS);
+        xEventGroupSetBits(theEventGroup, WIFI_SUCCESS);
         wifiSuccessfulConnections++; 
     }
 }
@@ -171,7 +172,7 @@ static void connectWifi(void)
     ESP_ERROR_CHECK(esp_wifi_start());
 
     // Wait for Wi-Fi connection
-    EventBits_t bits = xEventGroupWaitBits(wifiEventGroup, WIFI_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
+    EventBits_t bits = xEventGroupWaitBits(theEventGroup, WIFI_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
     if (bits & WIFI_SUCCESS)
     {
         ESP_LOGI(TAG, "Connected to Wi-Fi");
@@ -246,7 +247,7 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
 
             esp_mqtt_client_publish(client, "devices/presence", jsonString, 0, 2, 0);
             cJSON_Delete(connectionMessage);
-            xEventGroupSetBits(mqttEventGroup, MQTT_SUCCESS);
+            xEventGroupSetBits(theEventGroup, MQTT_SUCCESS);
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
@@ -500,8 +501,7 @@ void app_main(void)
 
     mqttDeviceQueue = xQueueCreate(10, sizeof(cJSON *));
 
-    wifiEventGroup = xEventGroupCreate();
-    mqttEventGroup = xEventGroupCreate();
+    theEventGroup = xEventGroupCreate();
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) 
@@ -513,17 +513,22 @@ void app_main(void)
 
     connectWifi();
 
+    initializeSNTP();
+
     deviceIdentifier = acquireIdentifier();
     ESP_LOGI(TAG, "Device identifier: %s", deviceIdentifier);
 
+    EventBits_t timeBits = xEventGroupWaitBits(theEventGroup, TIME_SYNC_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
+    if (!(timeBits & TIME_SYNC_SUCCESS)) 
+    {
+        ESP_LOGE(TAG, "Failed to sync RTC with NTP server");
+    }
+
     esp_mqtt_client_handle_t client = mqttAppStart();
 
-    initializeSNTP();
-
-    vTaskDelay(pdMS_TO_TICKS(100));
     
-    EventBits_t bits = xEventGroupWaitBits(mqttEventGroup, MQTT_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
-    if (bits & MQTT_SUCCESS)
+    EventBits_t wifiBits = xEventGroupWaitBits(theEventGroup, MQTT_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
+    if (wifiBits & MQTT_SUCCESS)
     {
         ESP_LOGI(TAG, "Connected to mqtt broker");
         xTaskCreate(mqttStatus, "mqttStatus", 4096, &client, tskIDLE_PRIORITY + 1, &mqttKeepAliveTaskHandle);
@@ -567,11 +572,9 @@ void app_main(void)
 
     while (1) 
     {
-        ESP_LOGI(TAG, "KEE{P}, %lld", time(0));
         vTaskDelay(pdMS_TO_TICKS(3000));
     }
-    vEventGroupDelete(wifiEventGroup);
+    vEventGroupDelete(theEventGroup);
     ESP_ERROR_CHECK(esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, gotIpEventInstance));
     ESP_ERROR_CHECK(esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifiHandlerEventInstance));
-    free(deviceIdentifier);
 }
