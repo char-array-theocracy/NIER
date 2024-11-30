@@ -181,11 +181,9 @@ static void connectWifi(void)
         ESP_LOGE(TAG, "Failed to connect to Wi-Fi");
     }
 }
-void mqttKeepAlive(void *pvParamaters) 
+void mqttStatus(void *pvParamaters) 
 {
     esp_mqtt_client_handle_t client = *(esp_mqtt_client_handle_t *)pvParamaters;        
-    char *destination = calloc(strlen(deviceIdentifier) + 20, sizeof(char));
-    snprintf(destination, strlen(deviceIdentifier) + 20, "devices/%s/status", deviceIdentifier);
     while(1) 
     {
         cJSON *message = cJSON_CreateObject();
@@ -193,6 +191,7 @@ void mqttKeepAlive(void *pvParamaters)
         {
             ESP_LOGE(TAG, "Failed to create a JSON object");
         }
+        cJSON_AddNumberToObject(message, "time", time(0));
         cJSON_AddNumberToObject(message, "uptime", esp_timer_get_time() / 1000000);
         wifi_ap_record_t ap;
         esp_wifi_sta_get_ap_info(&ap);
@@ -206,7 +205,7 @@ void mqttKeepAlive(void *pvParamaters)
             ESP_LOGE(TAG, "Failed to print JSON");
         }
 
-        int msg_id = esp_mqtt_client_publish(client, destination, jsonString, 0, 1, 1);
+        int msg_id = esp_mqtt_client_publish(client, "devices/status", jsonString, 0, 1, 1);
         if (msg_id != -1) 
         {
             ESP_LOGI(TAG, "Sent keep-alive, msg_id=%d", msg_id);
@@ -216,7 +215,6 @@ void mqttKeepAlive(void *pvParamaters)
         cJSON_Delete(message);
         vTaskDelay(pdMS_TO_TICKS(KEEP_ALIVE_INTERVAL_IN_SECONDS * 1000));
     }
-    free(destination);
 }
 
 static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
@@ -238,15 +236,15 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
             {
                 ESP_LOGE(TAG, "Failed to create a JSON object");
             }
-            cJSON_AddStringToObject(connectionMessage, "deviceId", deviceIdentifier);
-            cJSON_AddNumberToObject(connectionMessage, "status", 1);
+            cJSON_AddStringToObject(connectionMessage, "deviceID", deviceIdentifier);
+            cJSON_AddNumberToObject(connectionMessage, "connected", 1);
             char *jsonString = cJSON_PrintUnformatted(connectionMessage);
             if (jsonString == NULL) 
             {
                 ESP_LOGE(TAG, "Failed to print JSON");
             }
 
-            esp_mqtt_client_publish(client, "devices/presence", jsonString, 0, 2, 1);
+            esp_mqtt_client_publish(client, "devices/presence", jsonString, 0, 2, 0);
             cJSON_Delete(connectionMessage);
             xEventGroupSetBits(mqttEventGroup, MQTT_SUCCESS);
             break;
@@ -271,7 +269,7 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase,
                 ESP_LOGW(TAG, "Failed to parse recieved JSON message");
                 return;
             } 
-            cJSON *recievedDeviceIdentifier = cJSON_GetObjectItemCaseSensitive(recievedMessage, "deviceId");
+            cJSON *recievedDeviceIdentifier = cJSON_GetObjectItemCaseSensitive(recievedMessage, "deviceID");
             
             if (cJSON_IsString(recievedDeviceIdentifier)) 
             {
@@ -344,11 +342,27 @@ static char *acquireIdentifier(void)
 
 static esp_mqtt_client_handle_t mqttAppStart(void)
 {
+    cJSON *lastWillAndTestament = cJSON_CreateObject();
+    if (lastWillAndTestament == NULL) 
+    {
+        ESP_LOGE(TAG, "Failed to create JSON object");
+    }
+    cJSON_AddStringToObject(lastWillAndTestament, "deviceID", deviceIdentifier);
+    cJSON_AddNumberToObject(lastWillAndTestament, "connected", 0);
+    char lastWillAndTestamentFormatted[256] = {0};
+    snprintf(lastWillAndTestamentFormatted, 256, cJSON_PrintUnformatted(lastWillAndTestament));
     const esp_mqtt_client_config_t mqttCfg = {
         .broker.address.uri = BROKER_URI,
         .broker.verification.psk_hint_key = &psk_hint_key,
+        .session.last_will.msg = lastWillAndTestamentFormatted,
+        .session.last_will.msg_len = strlen(lastWillAndTestamentFormatted),
+        .session.last_will.qos = 1,
+        .session.last_will.topic = "devices/presence",
+        .session.last_will.retain = 1,
+        .session.keepalive = 1
     };
 
+    cJSON_Delete(lastWillAndTestament);
     esp_mqtt_client_handle_t client = esp_mqtt_client_init(&mqttCfg);
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqttEventHandler, NULL);
     esp_mqtt_client_start(client);
@@ -499,17 +513,20 @@ void app_main(void)
 
     connectWifi();
 
-    esp_mqtt_client_handle_t client = mqttAppStart();
     deviceIdentifier = acquireIdentifier();
     ESP_LOGI(TAG, "Device identifier: %s", deviceIdentifier);
 
+    esp_mqtt_client_handle_t client = mqttAppStart();
+
     initializeSNTP();
+
+    vTaskDelay(pdMS_TO_TICKS(100));
     
     EventBits_t bits = xEventGroupWaitBits(mqttEventGroup, MQTT_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
     if (bits & MQTT_SUCCESS)
     {
         ESP_LOGI(TAG, "Connected to mqtt broker");
-        xTaskCreate(mqttKeepAlive, "mqttKeepAlive", 4096, &client, tskIDLE_PRIORITY + 1, &mqttKeepAliveTaskHandle);
+        xTaskCreate(mqttStatus, "mqttStatus", 4096, &client, tskIDLE_PRIORITY + 1, &mqttKeepAliveTaskHandle);
     }
     else
     {
