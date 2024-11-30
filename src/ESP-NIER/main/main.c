@@ -15,6 +15,7 @@
 #include "esp_timer.h"
 #include "driver/gpio.h"
 #include "esp_sntp.h"
+#include "nvs.h"
 
 /* Definitions */
 #define DETECT_ADC_CHANNEL ADC1_CHANNEL_6
@@ -63,7 +64,9 @@ static esp_event_handler_instance_t gotIpEventInstance;
 static EventGroupHandle_t theEventGroup;
 static int retryNum = 0;
 
-/* Task Handles */
+/* Handles */
+
+static nvs_handle_t nvsHandle;
 static TaskHandle_t deviceTaskHandle = NULL;
 static TaskHandle_t mqttKeepAliveTaskHandle = NULL;
 
@@ -436,6 +439,17 @@ static void smartSwitch(void *pvParamaters)
         .intr_type = GPIO_INTR_DISABLE
     };
     gpio_config(&io_conf);
+    int restoreState = -1;
+    ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_i32(nvsHandle, "switchState", &restoreState));
+    if (restoreState == -1) 
+    {
+        ESP_LOGW(TAG, "Failed to restore previous switch state");
+    }
+    else 
+    {
+        ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_44, restoreState));
+    }
+    ESP_LOGI(TAG, "Restored switch state from previous session: %d", restoreState);
 
     while (1) 
     {
@@ -486,12 +500,14 @@ static void smartSwitch(void *pvParamaters)
         switch (state) 
         {
             case 0:
-                gpio_set_level(GPIO_NUM_44, 0);
+                ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_44, 0));
                 cJSON_AddNumberToObject(switchResponse, "state", 0);
+                ESP_ERROR_CHECK(nvs_set_i32(nvsHandle, "switchState", 0));
                 break;
             case 1:
-                gpio_set_level(GPIO_NUM_44, 1);
+                ESP_ERROR_CHECK(gpio_set_level(GPIO_NUM_44, 1));
                 cJSON_AddNumberToObject(switchResponse, "state", 1);
+                ESP_ERROR_CHECK(nvs_set_i32(nvsHandle, "switchState", 1));
                 break;
             default:
                 cJSON_AddNumberToObject(switchResponse, "state", -1);
@@ -550,6 +566,8 @@ void app_main(void)
     {
         ESP_LOGE(TAG, "Failed to connect to mqtt broker");
     }
+
+    ESP_ERROR_CHECK(nvs_open("storage", NVS_READWRITE, &nvsHandle));
 
     deviceType = identifyDevice();
     switch (deviceType) 
