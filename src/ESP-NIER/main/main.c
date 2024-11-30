@@ -24,7 +24,6 @@
 #define WIFI_SUCCESS BIT0
 #define MQTT_SUCCESS BIT1
 #define TIME_SYNC_SUCCESS BIT2
-#define MQTT_MESSAGE_RECIEVED BIT1
 #define MAX_FAILURES 10
 #define KEEP_ALIVE_INTERVAL_IN_SECONDS 4
 #define SNTP_PRIMARY_SERVER "pool.ntp.org"
@@ -360,7 +359,7 @@ static esp_mqtt_client_handle_t mqttAppStart(void)
         .session.last_will.qos = 1,
         .session.last_will.topic = "devices/presence",
         .session.last_will.retain = 1,
-        .session.keepalive = 1
+        .session.keepalive = 2
     };
 
     cJSON_Delete(lastWillAndTestament);
@@ -476,19 +475,33 @@ static void smartSwitch(void *pvParamaters)
         } 
 
         int state = recievedState->valueint;
+        cJSON *switchResponse = cJSON_CreateObject();
+        if (switchResponse == NULL)
+        {
+            ESP_LOGE(TAG, "Failed to create JSON object");
+        }
+        cJSON_AddNumberToObject(switchResponse, "time", time(0));
+        cJSON_AddStringToObject(switchResponse, "deviceID", deviceIdentifier);
+        cJSON_AddStringToObject(switchResponse, "call", "switch");
         switch (state) 
         {
             case 0:
                 gpio_set_level(GPIO_NUM_44, 0);
+                cJSON_AddNumberToObject(switchResponse, "state", 0);
                 break;
             case 1:
                 gpio_set_level(GPIO_NUM_44, 1);
+                cJSON_AddNumberToObject(switchResponse, "state", 1);
                 break;
             default:
+                cJSON_AddNumberToObject(switchResponse, "state", -1);
                 ESP_LOGW(TAG, "Unknown switch state");
         }
+        char *buffer[256] = {0};
+        sniprintf(buffer, 256, "%s", cJSON_PrintUnformatted(switchResponse));
+        esp_mqtt_client_publish(client, "devices/responses", buffer, strlen(buffer), 1, 1);
         ESP_LOGI(TAG, "Switch message received %d", state);
-
+        cJSON_Delete(switchResponse);
         cJSON_Delete(recievedMessage);
     }
 }
