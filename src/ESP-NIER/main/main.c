@@ -14,6 +14,7 @@
 #include "cJSON.h"
 #include "esp_timer.h"
 #include "driver/gpio.h"
+#include "esp_sntp.h"
 
 /* Definitions */
 #define DETECT_ADC_CHANNEL ADC1_CHANNEL_6
@@ -25,6 +26,9 @@
 #define MQTT_MESSAGE_RECIEVED BIT1
 #define MAX_FAILURES 10
 #define KEEP_ALIVE_INTERVAL_IN_SECONDS 4
+#define SNTP_PRIMARY_SERVER "pool.ntp.org"
+#define SNTP_SECONDARY_SERVER "time.google.com" 
+#define TIMEZONE "EET-2EEST,M3.5.0/3,M10.5.0/4"
 
 /* Out-of-scope */
 static const char *TAG = "NIER";
@@ -63,6 +67,23 @@ static int retryNum = 0;
 /* Task Handles */
 static TaskHandle_t deviceTaskHandle = NULL;
 static TaskHandle_t mqttKeepAliveTaskHandle = NULL;
+
+static void timeSyncNotification(struct timeval *tv)
+{
+    ESP_LOGI(TAG, "Time synchronized with NTP server");
+}
+
+static void initializeSNTP(void) 
+{
+    ESP_LOGI(TAG, "Initializing SNTP");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, SNTP_PRIMARY_SERVER);
+    esp_sntp_setservername(1, SNTP_SECONDARY_SERVER);
+    esp_sntp_set_sync_interval(3600);
+    esp_sntp_set_time_sync_notification_cb(timeSyncNotification);
+    esp_sntp_init();
+} 
+
 
 static void logErrorIfNonZero(const char *message, int errorCode)
 {
@@ -321,7 +342,7 @@ static char *acquireIdentifier(void)
     return base62Encoded;
 }
 
-esp_mqtt_client_handle_t mqttAppStart(void)
+static esp_mqtt_client_handle_t mqttAppStart(void)
 {
     const esp_mqtt_client_config_t mqttCfg = {
         .broker.address.uri = BROKER_URI,
@@ -334,7 +355,7 @@ esp_mqtt_client_handle_t mqttAppStart(void)
     return client;
 }
 
-int identifyDevice(void) 
+static int identifyDevice(void) 
 {
     adc_oneshot_unit_handle_t adcHandle;
     adc_oneshot_unit_init_cfg_t initConfig = {
@@ -389,7 +410,7 @@ int identifyDevice(void)
     }
 }
 
-void smartSwitch(void *pvParamaters) 
+static void smartSwitch(void *pvParamaters) 
 {
     esp_mqtt_client_handle_t client = *(esp_mqtt_client_handle_t *)pvParamaters;
     esp_mqtt_client_subscribe_single(client, "devices/calls", 1);
@@ -461,6 +482,7 @@ void smartSwitch(void *pvParamaters)
 void app_main(void)
 {
     esp_log_level_set("wifi", ESP_LOG_DEBUG);
+    setenv("TZ", TIMEZONE, 1);
 
     mqttDeviceQueue = xQueueCreate(10, sizeof(cJSON *));
 
@@ -481,6 +503,8 @@ void app_main(void)
     deviceIdentifier = acquireIdentifier();
     ESP_LOGI(TAG, "Device identifier: %s", deviceIdentifier);
 
+    initializeSNTP();
+    
     EventBits_t bits = xEventGroupWaitBits(mqttEventGroup, MQTT_SUCCESS, pdFALSE, pdFALSE, portMAX_DELAY);
     if (bits & MQTT_SUCCESS)
     {
@@ -526,7 +550,7 @@ void app_main(void)
 
     while (1) 
     {
-        ESP_LOGI(TAG, "KEE{P}");
+        ESP_LOGI(TAG, "KEE{P}, %lld", time(0));
         vTaskDelay(pdMS_TO_TICKS(3000));
     }
     vEventGroupDelete(wifiEventGroup);
