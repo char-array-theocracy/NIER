@@ -1,0 +1,1 @@
+/usr/bin/gcc -g CMakeFiles/NIER.dir/main.c.o -o NIER  /usr/lib/libcjson.so

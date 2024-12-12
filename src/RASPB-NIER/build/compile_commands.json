@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/clem/Projects/NIER/src/RASPB-NIER/build",
+  "command": "/usr/bin/gcc   -g -std=gnu11 -o CMakeFiles/NIER.dir/main.c.o -c /home/clem/Projects/NIER/src/RASPB-NIER/main.c",
+  "file": "/home/clem/Projects/NIER/src/RASPB-NIER/main.c",
+  "output": "CMakeFiles/NIER.dir/main.c.o"
+}
+]
