@@ -63,7 +63,7 @@ CMAKE_BINARY_DIR = /home/clem/Projects/NIER/src/RASPB-NIER/build
 # Directory level rules for the build root directory
 
 # The main recursive "all" target.
-all: CMakeFiles/NIER.dir/all
+all: CMakeFiles/nier.dir/all
 .PHONY : all
 
 # The main recursive "preinstall" target.
@@ -71,34 +71,34 @@ preinstall:
 .PHONY : preinstall
 
 # The main recursive "clean" target.
-clean: CMakeFiles/NIER.dir/clean
+clean: CMakeFiles/nier.dir/clean
 .PHONY : clean
 
 #=============================================================================
-# Target rules for target CMakeFiles/NIER.dir
+# Target rules for target CMakeFiles/nier.dir
 
 # All Build rule for target.
-CMakeFiles/NIER.dir/all:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/NIER.dir/build.make CMakeFiles/NIER.dir/depend
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/NIER.dir/build.make CMakeFiles/NIER.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles --progress-num=1,2 "Built target NIER"
-.PHONY : CMakeFiles/NIER.dir/all
+CMakeFiles/nier.dir/all:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/depend
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/build
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --progress-dir=/home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles --progress-num=1,2,3,4,5 "Built target nier"
+.PHONY : CMakeFiles/nier.dir/all
 
 # Build rule for subdir invocation for target.
-CMakeFiles/NIER.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles 2
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/NIER.dir/all
+CMakeFiles/nier.dir/rule: cmake_check_build_system
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles 5
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/nier.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles 0
-.PHONY : CMakeFiles/NIER.dir/rule
+.PHONY : CMakeFiles/nier.dir/rule
 
 # Convenience name for target.
-NIER: CMakeFiles/NIER.dir/rule
-.PHONY : NIER
+nier: CMakeFiles/nier.dir/rule
+.PHONY : nier
 
 # clean rule for target.
-CMakeFiles/NIER.dir/clean:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/NIER.dir/build.make CMakeFiles/NIER.dir/clean
-.PHONY : CMakeFiles/NIER.dir/clean
+CMakeFiles/nier.dir/clean:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/clean
+.PHONY : CMakeFiles/nier.dir/clean
 
 #=============================================================================
 # Special targets to cleanup operation of make.

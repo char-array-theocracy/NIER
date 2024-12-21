@@ -1,3 +1,3 @@
-/home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles/NIER.dir
+/home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles/nier.dir
 /home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles/edit_cache.dir
 /home/clem/Projects/NIER/src/RASPB-NIER/build/CMakeFiles/rebuild_cache.dir

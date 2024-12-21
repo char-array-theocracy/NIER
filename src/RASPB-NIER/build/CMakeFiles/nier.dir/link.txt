@@ -1,0 +1,1 @@
+/usr/bin/cc  -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wl,-z,relro,-z,now -O2 -fPIE -fPIC  -pie CMakeFiles/nier.dir/main.c.o CMakeFiles/nier.dir/mongoose.c.o CMakeFiles/nier.dir/NIER.c.o CMakeFiles/nier.dir/cJSON.c.o -o /home/clem/Projects/NIER/src/RASPB-NIER/nier  -lm -lsqlite3 -lpthread /usr/lib/libssl.so /usr/lib/libcrypto.so

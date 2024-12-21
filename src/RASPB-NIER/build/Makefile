@@ -117,24 +117,72 @@ depend:
 .PHONY : depend
 
 #=============================================================================
-# Target rules for targets named NIER
+# Target rules for targets named nier
 
 # Build rule for target.
-NIER: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 NIER
-.PHONY : NIER
+nier: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 nier
+.PHONY : nier
 
 # fast build rule for target.
-NIER/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/NIER.dir/build.make CMakeFiles/NIER.dir/build
-.PHONY : NIER/fast
+nier/fast:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/build
+.PHONY : nier/fast
+
+NIER.o: NIER.c.o
+.PHONY : NIER.o
+
+# target to build an object file
+NIER.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/NIER.c.o
+.PHONY : NIER.c.o
+
+NIER.i: NIER.c.i
+.PHONY : NIER.i
+
+# target to preprocess a source file
+NIER.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/NIER.c.i
+.PHONY : NIER.c.i
+
+NIER.s: NIER.c.s
+.PHONY : NIER.s
+
+# target to generate assembly for a file
+NIER.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/NIER.c.s
+.PHONY : NIER.c.s
+
+cJSON.o: cJSON.c.o
+.PHONY : cJSON.o
+
+# target to build an object file
+cJSON.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/cJSON.c.o
+.PHONY : cJSON.c.o
+
+cJSON.i: cJSON.c.i
+.PHONY : cJSON.i
+
+# target to preprocess a source file
+cJSON.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/cJSON.c.i
+.PHONY : cJSON.c.i
+
+cJSON.s: cJSON.c.s
+.PHONY : cJSON.s
+
+# target to generate assembly for a file
+cJSON.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/cJSON.c.s
+.PHONY : cJSON.c.s
 
 main.o: main.c.o
 .PHONY : main.o
 
 # target to build an object file
 main.c.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/NIER.dir/build.make CMakeFiles/NIER.dir/main.c.o
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/main.c.o
 .PHONY : main.c.o
 
 main.i: main.c.i
@@ -142,7 +190,7 @@ main.i: main.c.i
 
 # target to preprocess a source file
 main.c.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/NIER.dir/build.make CMakeFiles/NIER.dir/main.c.i
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/main.c.i
 .PHONY : main.c.i
 
 main.s: main.c.s
@@ -150,8 +198,32 @@ main.s: main.c.s
 
 # target to generate assembly for a file
 main.c.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/NIER.dir/build.make CMakeFiles/NIER.dir/main.c.s
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/main.c.s
 .PHONY : main.c.s
+
+mongoose.o: mongoose.c.o
+.PHONY : mongoose.o
+
+# target to build an object file
+mongoose.c.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/mongoose.c.o
+.PHONY : mongoose.c.o
+
+mongoose.i: mongoose.c.i
+.PHONY : mongoose.i
+
+# target to preprocess a source file
+mongoose.c.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/mongoose.c.i
+.PHONY : mongoose.c.i
+
+mongoose.s: mongoose.c.s
+.PHONY : mongoose.s
+
+# target to generate assembly for a file
+mongoose.c.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/nier.dir/build.make CMakeFiles/nier.dir/mongoose.c.s
+.PHONY : mongoose.c.s
 
 # Help Target
 help:
@@ -161,10 +233,19 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
-	@echo "... NIER"
+	@echo "... nier"
+	@echo "... NIER.o"
+	@echo "... NIER.i"
+	@echo "... NIER.s"
+	@echo "... cJSON.o"
+	@echo "... cJSON.i"
+	@echo "... cJSON.s"
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
+	@echo "... mongoose.o"
+	@echo "... mongoose.i"
+	@echo "... mongoose.s"
 .PHONY : help
 
 
