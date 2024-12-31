@@ -12,7 +12,6 @@ endif()
 
 find_package(OpenSSL REQUIRED)
 if(OPENSSL_FOUND)
-    message(STATUS "OpenSSL found: ${OPENSSL_VERSION}")
     include_directories(${OPENSSL_INCLUDE_DIR})
 else()
     message(FATAL_ERROR "OpenSSL not found!")
@@ -20,37 +19,32 @@ endif()
 
 find_library(MOSQUITTO_LIB mosquitto)
 if(MOSQUITTO_LIB)
-    message(STATUS "Mosquitto library found: ${MOSQUITTO_LIB}")
-    # Optionally add an include path if required
     find_path(MOSQUITTO_INCLUDE mosquitto.h)
     if(MOSQUITTO_INCLUDE)
-        message(STATUS "Mosquitto include directory: ${MOSQUITTO_INCLUDE}")
         include_directories(${MOSQUITTO_INCLUDE})
-    else()
-        message(WARNING "Mosquitto include directory not found!")
     endif()
 else()
     message(FATAL_ERROR "Mosquitto library not found!")
 endif()
 
-add_executable(nier main.c mongoose.c NIER.c cJSON.c)
+file(GLOB RASPB_NIER_SOURCES
+    "${PROJECT_SOURCE_DIR}/src/RASPB-NIER/*.c"
+)
 
-include_directories(${CMAKE_SOURCE_DIR})
+add_executable(nier ${RASPB_NIER_SOURCES})
+
+target_include_directories(nier PUBLIC
+    "${PROJECT_SOURCE_DIR}/src/RASPB-NIER"
+)
 
 target_link_libraries(nier
     m
     sqlite3
     pthread
     ${OPENSSL_LIBRARIES}
-    ${MOSQUITTO_LIB} 
+    ${MOSQUITTO_LIB}
 )
 
-set_target_properties(nier PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/..)
-
-add_custom_command(
-    TARGET nier
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/Debug
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:nier> ${CMAKE_BINARY_DIR}/Debug/outDebug
-    COMMENT "Copying the executable to /build/Debug/outDebug"
+set_target_properties(nier PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}"
 )

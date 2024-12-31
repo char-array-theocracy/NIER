@@ -14,7 +14,7 @@
 #include <stdatomic.h>
 
 #define LISTEN_URI "ws://localhost:8000"
-#define MQTT_BROKER_URI "localhost"
+#define MQTT_BROKER_URI "192.168.1.113"
 #define MQTT_BROKER_PORT 8883
 #define MQTT_PSK_IDENTITY "test1"
 #define MQTT_PSK_KEY "84fb1595364544af46ad955509b7a07c"
@@ -333,7 +333,7 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
         }
         else 
         {
-            struct mg_http_serve_opts opts = { .root_dir = "./web_root/" };
+            struct mg_http_serve_opts opts = { .root_dir = "./assets/" };
             mg_http_serve_dir(c, hm, &opts);
         }
     }
