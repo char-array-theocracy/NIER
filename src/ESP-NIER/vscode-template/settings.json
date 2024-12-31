@@ -1,0 +1,9 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "idf.espIdfPath": "/home/clem/esp/v5.3.2/esp-idf",
+    "idf.openOcdConfigs": [
+        "board/esp32c6-lpcore-bridge.cfg"
+    ],
+    "idf.port": "/dev/ttyACM0",
+    "idf.toolsPath": "/home/clem/.espressif"
+}

@@ -50,7 +50,8 @@ static TaskHandle_t mqttKeepAliveTaskHandle = NULL;
 #define MQTT_SUCCESS BIT1
 #define TIME_SYNC_SUCCESS BIT2
 #define MAX_FAILURES 10
-#define KEEP_ALIVE_INTERVAL_IN_SECONDS 4
+#define STATUS_INTERVAL_IN_SECONDS 10
+#define MQTT_QOS 2
 #define SNTP_PRIMARY_SERVER "pool.ntp.org"
 #define SNTP_SECONDARY_SERVER "time.google.com"
 #define TIMEZONE "EET-2EEST,M3.5.0/3,M10.5.0/4"
@@ -168,22 +169,21 @@ void mqttStatus(void *pvParameters)
             cJSON_AddNumberToObject(message, "rssi", ap.rssi);
             cJSON_AddNumberToObject(message, "heapTotal", heap_caps_get_total_size(MALLOC_CAP_DEFAULT));
             cJSON_AddNumberToObject(message, "heapUsed", esp_get_free_heap_size());
-            cJSON_AddNumberToObject(message, "deviceType", deviceType);
             char *jsonString = cJSON_PrintUnformatted(message);
             if (jsonString) {
                 char topic[128];
                 snprintf(topic, sizeof(topic), "devices/%s/status", deviceIdentifier);
-                int msg_id = esp_mqtt_client_publish(client, topic, jsonString, 0, 1, 1);
+                int msg_id = esp_mqtt_client_publish(client, topic, jsonString, 0, MQTT_QOS, 0);
                 if (msg_id >= 0) {
-                    ESP_LOGI(TAG, "Sent keep-alive");
+                    ESP_LOGI(TAG, "Sent status");
                 } else {
-                    ESP_LOGE(TAG, "Failed to send keep-alive");
+                    ESP_LOGE(TAG, "Failed to send status");
                 }
                 free(jsonString);
             }
             cJSON_Delete(message);
         }
-        vTaskDelay(pdMS_TO_TICKS(KEEP_ALIVE_INTERVAL_IN_SECONDS * 1000));
+        vTaskDelay(pdMS_TO_TICKS(STATUS_INTERVAL_IN_SECONDS * 1000));
     }
 }
 
@@ -214,7 +214,7 @@ static void mqttEventHandler(void* arg, esp_event_base_t eventBase, int32_t even
                 }
                 char *jsonString = cJSON_PrintUnformatted(connectionMessage);
                 if (jsonString) {
-                    esp_mqtt_client_publish(client, "devices/presence", jsonString, 0, 2, 0);
+                    esp_mqtt_client_publish(client, "devices/presence", jsonString, 0, MQTT_QOS, 0);
                     free(jsonString);
                 }
                 cJSON_Delete(connectionMessage);
@@ -326,7 +326,7 @@ static void smartSwitch(void *pvParamaters)
     esp_mqtt_client_handle_t client = *(esp_mqtt_client_handle_t *)pvParamaters;
     char callsTopic[128];
     snprintf(callsTopic, sizeof(callsTopic), "devices/%s/calls", deviceIdentifier);
-    esp_mqtt_client_subscribe(client, callsTopic, 1);
+    esp_mqtt_client_subscribe(client, callsTopic, MQTT_QOS);
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << GPIO_NUM_0),
         .mode = GPIO_MODE_OUTPUT,
@@ -338,12 +338,13 @@ static void smartSwitch(void *pvParamaters)
     int restoreState = -1;
     ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_i32(nvsHandle, "switchState", &restoreState));
     if (restoreState >= 0) {
-        gpio_set_level(GPIO_NUM_0, restoreState);
+        gpio_set_level(GPIO_NUM_0, restoreState); 
     }
     ESP_LOGI(TAG, "Restored switch state: %d", restoreState);
     while (1) {
         cJSON *receivedMessage = NULL;
         if (xQueueReceive(mqttDeviceQueue, &receivedMessage, portMAX_DELAY) != pdTRUE) {
+
             ESP_LOGW(TAG, "Failed to dequeue message");
             continue;
         }
@@ -357,7 +358,7 @@ static void smartSwitch(void *pvParamaters)
             cJSON_Delete(receivedMessage);
             continue;
         }
-        if (strcmp(callItem->valuestring, "switch") != 0) {
+        if (strcmp(callItem->valuestring, "changeSwitchState") != 0) {
             ESP_LOGI(TAG, "Ignoring non-switch call: %s", callItem->valuestring);
             cJSON_Delete(receivedMessage);
             continue;
@@ -380,7 +381,7 @@ static void smartSwitch(void *pvParamaters)
             if (respStr) {
                 char respTopic[128];
                 snprintf(respTopic, sizeof(respTopic), "devices/%s/responses", deviceIdentifier);
-                esp_mqtt_client_publish(client, respTopic, respStr, 0, 1, 1);
+                esp_mqtt_client_publish(client, respTopic, respStr, 0, MQTT_QOS, 0);
                 free(respStr);
             }
             cJSON_Delete(switchResponse);
@@ -474,7 +475,7 @@ static void temperatureHumidityTask(void *pvParameters)
                 if (jsonString) {
                     char topic[128];
                     snprintf(topic, sizeof(topic), "devices/%s/TemperatureHumiditySensor", deviceIdentifier);
-                    esp_mqtt_client_publish(client, topic, jsonString, 0, 1, 1);
+                    esp_mqtt_client_publish(client, topic, jsonString, 0, MQTT_QOS, 1);
                     free(jsonString);
                 }
                 cJSON_Delete(message);
