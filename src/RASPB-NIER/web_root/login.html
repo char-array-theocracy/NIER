@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NIER IoT Systems</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: #0c0e19;
+      font-family: 'Orbitron', sans-serif;
+      color: #cce858;
+      overflow: hidden;
+    }
+    .window-container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 80%;
+      max-width: 800px;
+      transform: translate(-50%, -50%);
+      border: 2px solid #cce858;
+      border-radius: 8px;
+      background: rgba(12, 14, 25, 0.85);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background-image: url("data:image/svg+xml,%3Csvg width='40' height='46' viewBox='0 0 40 46' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23cce858' fill-opacity='0.03'%3E%3Cpath d='M34.64 0l5.02 8.66-5.02 8.66H25.93l-5.02-8.66 5.02-8.66zM14.78 0l5.02 8.66-5.02 8.66H6.07l-5.02-8.66L6.07 0zM34.64 28.69l5.02 8.66-5.02 8.66H25.93l-5.02-8.66 5.02-8.66zM14.78 28.69l5.02 8.66-5.02 8.66H6.07l-5.02-8.66 5.02-8.66z' /%3E%3C/g%3E%3C/svg%3E");
+      background-size: 80px 92px;
+      background-repeat: repeat;
+    }
+    .window-title-bar {
+      background: #cce858;
+      color: #0c0e19;
+      padding: 10px 15px;
+      font-size: 16px;
+      letter-spacing: 2px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+    }
+    .window-title-bar span {
+      margin-right: auto;
+    }
+    .login-content {
+      padding: 30px;
+    }
+    .login-title {
+      text-align: center;
+      font-size: 26px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: #cce858;
+    }
+    form {
+      max-width: 300px;
+      margin: 0 auto;
+      text-align: left;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+      margin-bottom: 5px;
+      font-size: 14px;
+      letter-spacing: 1px;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 10px;
+      border: 2px solid #cce858;
+      border-radius: 4px;
+      font-size: 14px;
+      margin-bottom: 10px;
+      background: #0c0e19;
+      color: #cce858;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      border: 2px solid #cce858;
+      border-radius: 4px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      background: #cce858;
+      color: #0c0e19;
+      transition: background 0.3s ease, color 0.3s ease;
+    }
+    button:hover {
+      background: #0c0e19;
+      color: #cce858;
+    }
+    .error-message {
+      margin-top: 10px;
+      color: #ff7777;
+      min-height: 1.2em;
+      text-align: center;
+    }
+    .countdown {
+      margin-top: 10px;
+      color: #ffae42;
+      min-height: 1.2em;
+      text-align: center;
+    }
+    .disabled {
+      pointer-events: none;
+      opacity: 0.6;
+    }
+    .fluff-code {
+      position: relative;
+      height: 150px;
+      background: rgba(12, 14, 25, 0.9);
+      overflow: hidden;
+    }
+    .fluff-line {
+      position: absolute;
+      left: 10px;
+      right: 10px;
+      white-space: nowrap;
+      opacity: 0.3; 
+      line-height: 16px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="window-container">
+    <div class="window-title-bar">
+      <span>NIER IoT Systems</span>
+    </div>
+    <div class="login-content">
+      <h2 class="login-title">LOGIN</h2>
+      <div class="error-message" id="errorMsg"></div>
+      <div class="countdown" id="countdown"></div>
+      <form id="loginForm">
+        <label for="username">Username</label>
+        <input type="text" id="username" required />
+        <label for="password">Password (TOTP)</label>
+        <input type="password" id="password" required />
+        <button type="submit" id="loginBtn">Login</button>
+      </form>
+    </div>
+    <div class="fluff-code" id="fluffContainer"></div>
+  </div>
+
+  <script>
+    const loginForm = document.getElementById("loginForm");
+    const errorMsg = document.getElementById("errorMsg");
+    const countdownEl = document.getElementById("countdown");
+    const fluffContainer = document.getElementById("fluffContainer");
+
+    let countdownInterval = null;
+
+
+    let fluffLinesList = [];
+
+    const fluffLines = [
+      "[INIT] - Scanning for security nodes...",
+      "[ACQUIRE] - Sig: 55 1C 7A E9 55 1C 7A E9",
+      "[DECRYPT] - Shard recognized. Decompiling access tokens...",
+      "[CHECK] - Firewall status: Active",
+      "[CHECK] - ICE presence: Medium level",
+      "[LOAD] - Quickhacks: CAMERA_SHUTDOWN / ICEPICK / MASS_VULNERABILITY",
+      "[RESPONSE] - TOTP verification routine",
+      "[ERROR] - Invalid intruder offset index",
+      "[INFO] - Tracing remote host network path...",
+      "[INFO] - Potential vulnerability in subsystem #7",
+      "[WARNING] - Netwatch presence detected",
+      "[NOTICE] - Arasaka access attempt logged.",
+      "[SENSOR] - Packet injection anomaly found.",
+      "[SYS] - Recon drone connected. Awaiting command.",
+      "[ALERT] - Unauthorized login attempt threshold near limit.",
+      "[TRACE] - UI glitch simulation...",
+      "[DEBUG] - CPU usage spike, analyzing..."
+    ];
+    let lastFluffIndex = -1;
+
+    function getRandomFluffText() {
+      if (fluffLines.length === 1) return fluffLines[0];
+      let idx;
+      do {
+        idx = Math.floor(Math.random() * fluffLines.length);
+      } while (idx === lastFluffIndex);
+      lastFluffIndex = idx;
+      return fluffLines[idx];
+    }
+
+    function addFluffLine() {
+      fluffLinesList.forEach(line => {
+        line.top -= lineHeight;
+        line.element.style.top = line.top + "px";
+      });
+
+      fluffLinesList = fluffLinesList.filter(line => {
+        if (line.top < -lineHeight) {
+          fluffContainer.removeChild(line.element);
+          return false;
+        }
+        return true;
+      });
+
+      const text = getRandomFluffText();
+      const lineDiv = document.createElement("div");
+      lineDiv.className = "fluff-line";
+      lineDiv.textContent = text;
+
+      const bottomPos = 150 - lineHeight; 
+      lineDiv.style.top = bottomPos + "px";
+
+      fluffContainer.appendChild(lineDiv);
+
+      fluffLinesList.push({
+        text,
+        top: bottomPos,
+        element: lineDiv
+      });
+    }
+
+    function scheduleNextFluffLine() {
+      const delay = 600 + Math.random() * 1400; // 600 - 2000 ms
+      setTimeout(() => {
+        addFluffLine();
+        scheduleNextFluffLine();
+      }, delay);
+    }
+
+    scheduleNextFluffLine();
+
+    function startCountdown(seconds) {
+      let remaining = seconds;
+      countdownEl.textContent = `Please wait ${remaining} seconds before trying again.`;
+      loginForm.classList.add("disabled");
+      countdownInterval = setInterval(() => {
+        remaining--;
+        if (remaining > 0) {
+          countdownEl.textContent = `Please wait ${remaining} seconds before trying again.`;
+        } else {
+          clearInterval(countdownInterval);
+          countdownEl.textContent = "";
+          loginForm.classList.remove("disabled");
+        }
+      }, 1000);
+    }
+
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorMsg.textContent = "";
+      countdownEl.textContent = "";
+
+      const data = {
+        username: document.getElementById("username").value.trim(),
+        password: document.getElementById("password").value.trim()
+      };
+
+      try {
+        startCountdown(30);
+
+        const response = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+          const text = await response.text();
+          const re = /Please try again in (\d+) seconds/i;
+          if (re.test(text)) {
+            const matches = re.exec(text);
+            const waitTime = parseInt(matches[1], 10);
+            clearInterval(countdownInterval);
+            startCountdown(waitTime);
+          } else {
+            errorMsg.textContent = text;
+          }
+        } else {
+          const text = await response.text();
+          if (text.includes("Incorrect password")) {
+            errorMsg.textContent = "Incorrect password.";
+          } else if (text.includes("Unknown username")) {
+            errorMsg.textContent = "Unknown username.";
+          } else {
+            window.location.href = "main.html";
+          }
+        }
+      } catch (err) {
+        errorMsg.textContent = "An error occurred. Please try again.";
+      }
+    });
+  </script>
+</body>
+</html>
