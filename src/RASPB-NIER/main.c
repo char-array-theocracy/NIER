@@ -212,6 +212,7 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
         cleanExpiredSessions();
         bool isAuthenticated = checkSession(hm, c, userName);
 
+        NIER_LOGI("NIER", "URI:%.*s", (int)hm->uri.len, hm->uri.buf);
         if (!isAuthenticated) {
             if (!(mg_match(hm->uri, mg_str("/login"), NULL) || 
                 mg_match(hm->uri, mg_str("/api/login"), NULL))) {
@@ -220,7 +221,8 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             }
         } else {
             if (mg_match(hm->uri, mg_str("/login"), NULL) || 
-                mg_match(hm->uri, mg_str("/api/login"), NULL)) {
+                mg_match(hm->uri, mg_str("/api/login"), NULL) || mg_match(hm->uri, mg_str("/"), NULL)) 
+            {
                 mg_http_reply(c, 302, "Location: /dashboard\r\n", "");
                 return;
             }
