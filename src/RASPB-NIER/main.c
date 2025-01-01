@@ -347,6 +347,9 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             sqlite3_finalize(totpQueryStatement);
             cJSON_Delete(loginInfo);
             return;
+        } else 
+        {
+            mg_http_serve_dir(c, hm, &serveOptions);
         }
     }
     else if (ev == MG_EV_WS_MSG) 
