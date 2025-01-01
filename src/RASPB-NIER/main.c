@@ -31,6 +31,7 @@ struct mosquitto *mosquittoThing;
 int disableMQTT = 0;
 int debugFlag = 0;
 sqlite3 *database = NULL;
+struct mg_http_serve_opts serveOptions = { .root_dir = "./assets/" };
 
 const char *base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const char *totpQuery = "SELECT TOTP_CODE FROM USERS WHERE NAME = ?";
@@ -205,27 +206,40 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
     {
         struct mg_http_message *hm = (struct mg_http_message *)ev_data;
         char userName[256] = {0};
-        int isAuthenticated = 0;
         char addressHex[33] = {0};
         mgAddrToHex(&c->rem, addressHex, sizeof(addressHex));
         cleanExpiredSessions();
+        bool isAuthenticated = checkSession(hm, c, userName);
 
-        if ((hm->uri.len == strlen("/api/login") && strncmp(hm->uri.buf, "/api/login", hm->uri.len) == 0) ||
-            (hm->uri.len == strlen("/login.html") && strncmp(hm->uri.buf, "/login.html", hm->uri.len) == 0))
-        {
-        }
-        else
-        {
-            isAuthenticated = checkSession(hm, c, userName);
-            if (!isAuthenticated)
-            {
-                mg_http_reply(c, 302, "Location: /login.html\r\n", "");
+        if (!isAuthenticated) {
+            if (!(mg_match(hm->uri, mg_str("/login"), NULL) || 
+                mg_match(hm->uri, mg_str("/api/login"), NULL))) {
+                mg_http_reply(c, 302, "Location: /login\r\n", "");
                 return;
-            } 
+            }
+        } else {
+            if (mg_match(hm->uri, mg_str("/login"), NULL) || 
+                mg_match(hm->uri, mg_str("/api/login"), NULL)) {
+                mg_http_reply(c, 302, "Location: /dashboard\r\n", "");
+                return;
+            }
         }
-        NIER_LOGI("NIER", "Authenticated session: user: %s, ip: %s", userName, mgHexToAddr(addressHex));
 
-        if (mg_match(hm->uri, mg_str("/websocket"), NULL)) 
+        if (isAuthenticated) NIER_LOGI("NIER", "Authenticated connection: user: %s, ip: %s", userName, mgHexToAddr(addressHex));
+
+        if (mg_match(hm->uri, mg_str("/dashboard"), NULL)) 
+        {
+            mg_http_serve_file(c, hm, "./assets/dashboard.html", &serveOptions);
+        }
+        else if (mg_match(hm->uri, mg_str("/login"), NULL)) 
+        {
+            mg_http_serve_file(c, hm, "./assets/login.html", &serveOptions);
+        }
+        else if (mg_match(hm->uri, mg_str("/test"), NULL)) 
+        {
+            mg_http_serve_file(c, hm, "./assets/test.html", &serveOptions);
+        }
+        else if (mg_match(hm->uri, mg_str("/websocket"), NULL)) 
         {
             NIER_LOGI("Mongoose", "Upgraded ip: %s to WebSocket", mgHexToAddr(addressHex));
             mg_ws_upgrade(c, hm, "Access-Control-Allow-Origin: *\r\n");
@@ -330,11 +344,6 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             sqlite3_finalize(totpQueryStatement);
             cJSON_Delete(loginInfo);
             return;
-        }
-        else 
-        {
-            struct mg_http_serve_opts opts = { .root_dir = "./assets/" };
-            mg_http_serve_dir(c, hm, &opts);
         }
     }
     else if (ev == MG_EV_WS_MSG) 
