@@ -18,6 +18,7 @@
 #define MQTT_BROKER_PORT 8883
 #define MQTT_PSK_IDENTITY "test1"
 #define MQTT_PSK_KEY "84fb1595364544af46ad955509b7a07c"
+#define MQTT_QOS 2
 
 struct TOTPAttempt{
     char ipHex[33];
@@ -227,7 +228,7 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
 
         if (isAuthenticated) NIER_LOGI("NIER", "Authenticated connection: user: %s, ip: %s", userName, mgHexToAddr(addressHex));
 
-        if (mg_match(hm->uri, mg_str("/dashboard"), NULL)) 
+        if (mg_match(hm->uri, mg_str("/dashboard"), NULL) && isAuthenticated) 
         {
             mg_http_serve_file(c, hm, "./assets/dashboard.html", &serveOptions);
         }
@@ -235,11 +236,11 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
         {
             mg_http_serve_file(c, hm, "./assets/login.html", &serveOptions);
         }
-        else if (mg_match(hm->uri, mg_str("/test"), NULL)) 
+        else if (mg_match(hm->uri, mg_str("/test"), NULL) && isAuthenticated) 
         {
             mg_http_serve_file(c, hm, "./assets/test.html", &serveOptions);
         }
-        else if (mg_match(hm->uri, mg_str("/websocket"), NULL)) 
+        else if (mg_match(hm->uri, mg_str("/websocket"), NULL) && isAuthenticated) 
         {
             NIER_LOGI("Mongoose", "Upgraded ip: %s to WebSocket", mgHexToAddr(addressHex));
             mg_ws_upgrade(c, hm, "Access-Control-Allow-Origin: *\r\n");
@@ -386,7 +387,7 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
             cJSON_Delete(deviceListJSON);
         }
-        else if (strncmp(call, "changeSwitchState", 17) == 0) 
+        else if (strncmp(call, "relayMessage", 12) == 0) 
         {
             cJSON *deviceIDJSON = cJSON_GetObjectItem(wsMessage, "deviceID");
             if (deviceIDJSON == NULL) {
@@ -396,29 +397,50 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
                 return;
             }
             char *deviceID = cJSON_GetStringValue(deviceIDJSON);
-            cJSON *stateJSON = cJSON_GetObjectItem(wsMessage, "state");
-            if (stateJSON == NULL) {
-                char result[] = "{\"error\":\"invalid state\"}";
+            if (deviceID == NULL || strlen(deviceID) > 1011) { 
+                char result[] = "{\"error\":\"invalid or too long deviceID\"}";
                 mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
                 cJSON_Delete(wsMessage);
                 return;
             }
-            cJSON_AddNumberToObject(wsMessage, "time", time(NULL));
-            char topic[256] = {0};
-            snprintf(topic, 255, "devices/%s/calls", deviceID);
-            char *payload = cJSON_PrintUnformatted(wsMessage);
-            if (payload != NULL) {
-                int result = mosquitto_publish(mosquittoThing, NULL, topic, strlen(payload), payload, 1, 0);
-                if (result != MOSQ_ERR_SUCCESS) {
-                    NIER_LOGE("NIER", "Failed to publish MQTT message: %s", mosquitto_strerror(result));
-                } else {
-                    NIER_LOGI("NIER", "Successfully published to topic: %s", topic);
-                }
-                free(payload);
-            } else {
-                NIER_LOGE("NIER", "Failed to create payload for MQTT");
+
+            cJSON *payloadJSON = cJSON_GetObjectItem(wsMessage, "message");
+            if (payloadJSON == NULL) {
+                char result[] = "{\"error\":\"invalid message\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                cJSON_Delete(wsMessage);
+                return;
             }
+
+            char *payload = cJSON_PrintUnformatted(payloadJSON);
+            if (payload == NULL) {
+                char result[] = "{\"error\":\"could not process message\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                cJSON_Delete(wsMessage);
+                return;
+            }
+
+            char topic[1024] = {0};
+            snprintf(topic, 1023, "devices/%s/calls", deviceID);
+
+            if (mosquittoThing == NULL) {
+                char result[] = "{\"error\":\"MQTT client not initialized\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                free(payload); 
+                cJSON_Delete(wsMessage);
+                return;
+            }
+
+            if (mosquitto_publish(mosquittoThing, NULL, topic, strlen(payload), payload, MQTT_QOS, 0) != MOSQ_ERR_SUCCESS) {
+                char result[] = "{\"error\":\"failure publishing\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                free(payload); 
+                cJSON_Delete(wsMessage);
+                return;
+            }
+
         }
+
         else 
         {
             char result[] = "{\"error\":\"unknown call\"}";
