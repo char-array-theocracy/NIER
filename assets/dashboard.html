@@ -1,10 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96" />
-<link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
-<link rel="shortcut icon" href="/icons/favicon.ico" />
-<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-<link rel="manifest" href="/icons/site.webmanifest" />
-</head>    
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NIER - Dashboard</title>
+  <link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <link rel="shortcut icon" href="/icons/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/icons/site.webmanifest" />
+  <script src="https://unpkg.com/alpinejs" defer></script>
+  <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+  <link rel="stylesheet" href="dashboardStyle.css">
+</head>
+<body>
+  <div x-data="{ currentPage: 0 }">
+      <div class="contentBox devices" x-transition x-show="currentPage === 0">
+        Devices content...
+      </div>
+      <div class="contentBox system" x-transition x-cloak x-show="currentPage === 1">
+        System content...
+      </div>
+      <div class="contentBox terminal" x-transition x-cloak x-show="currentPage === 2">
+        Terminal content...
+      </div>
+    <div class="sidebar">
+      <img class="logo" src="icons/icon.png" width="50"> </img>
+      <button x-bind:class="currentPage === 0 ? 'active' : ''" x-on:click="currentPage = 0">
+        <span class="material-symbols-outlined">google_home_devices</span>
+      </button>
+      <button x-bind:class="currentPage === 1 ? 'active' : ''" x-on:click="currentPage = 1">
+        <span class="material-symbols-outlined">dns</span>
+      </button>
+      <button x-bind:class="currentPage === 2 ? 'active' : ''" x-on:click="currentPage = 2">
+        <span class="material-symbols-outlined">terminal</span>
+      </button>
+      <div class="separator"></div>
+      <a href="https://github.com/char-array-theocracy/NIER" target="_blank" class="github-button">
+        <span class="material-symbols-outlined">code</span>
+      </a>
+    </div>
+  </div>
+</body>
 </html>

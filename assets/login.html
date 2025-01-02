@@ -3,301 +3,140 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>NIER IoT Systems</title>
+  <title>NIER - Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap" rel="stylesheet">
   <link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96" />
   <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
   <link rel="shortcut icon" href="/icons/favicon.ico" />
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
   <link rel="manifest" href="/icons/site.webmanifest" />
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+    /* colors: back:#0c1c25, 1:#6c6d6e, 2:#959390, 3:#d9d8d4 */
     * {
       margin: 0;
-      padding: 0;
       box-sizing: border-box;
+      font-family: 'Ubuntu', sans-serif;
     }
-    html, body {
-      width: 100%;
-      height: 100%;
-      background: #0c0e19;
-      font-family: 'Orbitron', sans-serif;
-      color: #cce858;
-      overflow: hidden;
-    }
-    .window-container {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 80%;
-      max-width: 800px;
-      transform: translate(-50%, -50%);
-      border: 2px solid #cce858;
-      border-radius: 8px;
-      background: rgba(12, 14, 25, 0.85);
+    body {
+      margin: 0;
       display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      background-image: url("data:image/svg+xml,%3Csvg width='40' height='46' viewBox='0 0 40 46' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23cce858' fill-opacity='0.03'%3E%3Cpath d='M34.64 0l5.02 8.66-5.02 8.66H25.93l-5.02-8.66 5.02-8.66zM14.78 0l5.02 8.66-5.02 8.66H6.07l-5.02-8.66L6.07 0zM34.64 28.69l5.02 8.66-5.02 8.66H25.93l-5.02-8.66 5.02-8.66zM14.78 28.69l5.02 8.66-5.02 8.66H6.07l-5.02-8.66 5.02-8.66z' /%3E%3C/g%3E%3C/svg%3E");
-      background-size: 80px 92px;
-      background-repeat: repeat;
-    }
-    .window-title-bar {
-      background: #cce858;
-      color: #0c0e19;
-      padding: 10px 15px;
-      font-size: 16px;
-      letter-spacing: 2px;
-      font-weight: 700;
-      display: flex;
+      justify-content: center;
       align-items: center;
+      height: 100vh;
+      background-color:#0c1c25;
+      background-image: linear-gradient(30deg, #1a2e38 12%, transparent 12.5%, transparent 87%, #1a2e38 87.5%, #1a2e38),
+      linear-gradient(150deg, #1a2e38 12%, transparent 12.5%, transparent 87%, #1a2e38 87.5%, #1a2e38),
+      linear-gradient(30deg, #1a2e38 12%, transparent 12.5%, transparent 87%, #1a2e38 87.5%, #1a2e38),
+      linear-gradient(150deg, #1a2e38 12%, transparent 12.5%, transparent 87%, #1a2e38 87.5%, #1a2e38),
+      linear-gradient(60deg, #2a4450 25%, transparent 25.5%, transparent 75%, #2a4450 75%, #2a4450), 
+      linear-gradient(60deg, #2a4450 25%, transparent 25.5%, transparent 75%, #2a4450 75%, #2a4450);
+      background-size: 80px 140px;
+      background-position: 0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px;
     }
-    .window-title-bar span {
-      margin-right: auto;
+    .container {
+      min-width: 350px;
+      height: 320px;
+      position: relative;
+      z-index: 1;
+      background: #0c1c25;
+      border-radius: 50px;
+      box-shadow: rgba(0, 0, 0, 0.3) 0px 19px 38px, rgba(0, 0, 0, 0.22) 0px 15px 12px;
     }
-    .login-content {
-      padding: 30px;
-    }
-    .login-title {
+    .loginBox {
+      max-width: 250px;
+      margin: 0 auto;
       text-align: center;
-      font-size: 26px;
-      font-weight: 700;
-      margin-bottom: 20px;
-      color: #cce858;
+    }
+    h2 {
+      color: #fff;
+      margin-top: 20px;
+      margin-bottom: -20px;
     }
     form {
-      max-width: 300px;
-      margin: 0 auto;
-      text-align: left;
+      display: flex;
+      flex-direction: column;
+      margin-top: 20px;
     }
-    label {
-      display: block;
-      margin-top: 10px;
-      margin-bottom: 5px;
-      font-size: 14px;
-      letter-spacing: 1px;
-    }
-    input[type="text"],
-    input[type="password"] {
-      width: 100%;
+    input {
       padding: 10px;
-      border: 2px solid #cce858;
-      border-radius: 4px;
-      font-size: 14px;
-      margin-bottom: 10px;
-      background: #0c0e19;
-      color: #cce858;
+      margin-top: 25px;
+      border: none;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #000;
+      color: #000;
+      font-size: medium;
+      transition: outline-color 0.3s ease-in-out;
+    }
+    input:focus {
+      outline: 3px solid #396f88;
     }
     button {
-      width: 100%;
-      padding: 12px;
-      font-size: 16px;
-      border: 2px solid #cce858;
-      border-radius: 4px;
-      letter-spacing: 1px;
+      background: #2a4450;
+      color: #fff;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
       cursor: pointer;
-      background: #cce858;
-      color: #0c0e19;
-      transition: background 0.3s ease, color 0.3s ease;
+      margin-top: 25px;
+      transition: background-color 0.3s ease-in-out;
+      font-size: large;
     }
     button:hover {
-      background: #0c0e19;
-      color: #cce858;
-    }
-    .error-message {
-      margin-top: 10px;
-      color: #ff7777;
-      min-height: 1.2em;
-      text-align: center;
-    }
-    .countdown {
-      margin-top: 10px;
-      color: #ffae42;
-      min-height: 1.2em;
-      text-align: center;
-    }
-    .disabled {
-      pointer-events: none;
-      opacity: 0.6;
-    }
-    .fluff-code {
-      position: relative;
-      height: 150px;
-      background: rgba(12, 14, 25, 0.9);
-      overflow: hidden;
-    }
-    .fluff-line {
-      position: absolute;
-      left: 10px;
-      right: 10px;
-      white-space: nowrap;
-      opacity: 0.3; 
-      line-height: 16px;
-      font-size: 12px;
+      background: #396f88;
     }
   </style>
 </head>
 <body>
-  <div class="window-container">
-    <div class="window-title-bar">
-      <span>NIER IoT Systems</span>
-    </div>
-    <div class="login-content">
-      <h2 class="login-title">LOGIN</h2>
-      <div class="error-message" id="errorMsg"></div>
-      <div class="countdown" id="countdown"></div>
+  <img src="icons/icon.png" width="250" alt="App Icon">
+  <div class="container">
+    <div class="loginBox">
+      <h2>LOGIN</h2>
       <form id="loginForm">
-        <label for="username">Username</label>
-        <input type="text" id="username" required />
-        <label for="password">Password (TOTP)</label>
-        <input type="password" id="password" required />
-        <button type="submit" id="loginBtn">Login</button>
+        <input type="text" id="username" name="username" required placeholder="Username">
+        <input type="password" id="TOTP" name="TOTP" required placeholder="TOTP code">
+        <button type="submit">Submit</button>
       </form>
     </div>
-    <div class="fluff-code" id="fluffContainer"></div>
   </div>
-
   <script>
     const loginForm = document.getElementById("loginForm");
-    const errorMsg = document.getElementById("errorMsg");
-    const countdownEl = document.getElementById("countdown");
-    const fluffContainer = document.getElementById("fluffContainer");
-
-    let countdownInterval = null;
-
-
-    let fluffLinesList = [];
-
-    const fluffLines = [
-      "[INIT] - Scanning for security nodes...",
-      "[ACQUIRE] - Sig: 55 1C 7A E9 55 1C 7A E9",
-      "[DECRYPT] - Shard recognized. Decompiling access tokens...",
-      "[CHECK] - Firewall status: Active",
-      "[CHECK] - ICE presence: Medium level",
-      "[LOAD] - Quickhacks: CAMERA_SHUTDOWN / ICEPICK / MASS_VULNERABILITY",
-      "[RESPONSE] - TOTP verification routine",
-      "[ERROR] - Invalid intruder offset index",
-      "[INFO] - Tracing remote host network path...",
-      "[INFO] - Potential vulnerability in subsystem #7",
-      "[WARNING] - Netwatch presence detected",
-      "[NOTICE] - Arasaka access attempt logged.",
-      "[SENSOR] - Packet injection anomaly found.",
-      "[SYS] - Recon drone connected. Awaiting command.",
-      "[ALERT] - Unauthorized login attempt threshold near limit.",
-      "[TRACE] - UI glitch simulation...",
-      "[DEBUG] - CPU usage spike, analyzing..."
-    ];
-    let lastFluffIndex = -1;
-
-    function getRandomFluffText() {
-      if (fluffLines.length === 1) return fluffLines[0];
-      let idx;
-      do {
-        idx = Math.floor(Math.random() * fluffLines.length);
-      } while (idx === lastFluffIndex);
-      lastFluffIndex = idx;
-      return fluffLines[idx];
-    }
-
-    function addFluffLine() {
-      fluffLinesList.forEach(line => {
-        line.top -= lineHeight;
-        line.element.style.top = line.top + "px";
-      });
-
-      fluffLinesList = fluffLinesList.filter(line => {
-        if (line.top < -lineHeight) {
-          fluffContainer.removeChild(line.element);
-          return false;
-        }
-        return true;
-      });
-
-      const text = getRandomFluffText();
-      const lineDiv = document.createElement("div");
-      lineDiv.className = "fluff-line";
-      lineDiv.textContent = text;
-
-      const bottomPos = 150 - lineHeight; 
-      lineDiv.style.top = bottomPos + "px";
-
-      fluffContainer.appendChild(lineDiv);
-
-      fluffLinesList.push({
-        text,
-        top: bottomPos,
-        element: lineDiv
-      });
-    }
-
-    function scheduleNextFluffLine() {
-      const delay = 600 + Math.random() * 1400; // 600 - 2000 ms
-      setTimeout(() => {
-        addFluffLine();
-        scheduleNextFluffLine();
-      }, delay);
-    }
-
-    scheduleNextFluffLine();
-
-    function startCountdown(seconds) {
-      let remaining = seconds;
-      countdownEl.textContent = `Please wait ${remaining} seconds before trying again.`;
-      loginForm.classList.add("disabled");
-      countdownInterval = setInterval(() => {
-        remaining--;
-        if (remaining > 0) {
-          countdownEl.textContent = `Please wait ${remaining} seconds before trying again.`;
-        } else {
-          clearInterval(countdownInterval);
-          countdownEl.textContent = "";
-          loginForm.classList.remove("disabled");
-        }
-      }, 1000);
-    }
-
     loginForm.addEventListener("submit", async (e) => {
       e.preventDefault();
-      errorMsg.textContent = "";
-      countdownEl.textContent = "";
-
       const data = {
         username: document.getElementById("username").value.trim(),
-        password: document.getElementById("password").value.trim()
+        password: document.getElementById("TOTP").value.trim()
       };
 
       try {
-        startCountdown(30);
-
         const response = await fetch("/api/login", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data)
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(data),
         });
 
-        if (!response.ok) {
-          const text = await response.text();
-          const re = /Please try again in (\d+) seconds/i;
-          if (re.test(text)) {
-            const matches = re.exec(text);
-            const waitTime = parseInt(matches[1], 10);
-            clearInterval(countdownInterval);
-            startCountdown(waitTime);
-          } else {
-            errorMsg.textContent = text;
-          }
+      if (!response.ok) {
+        const contentType = response.headers.get("Content-Type");
+        let errorMessage = "Login failed";
+
+        if (contentType && contentType.includes("text/plain")) {
+          errorMessage = await response.text();
         } else {
-          const text = await response.text();
-          if (text.includes("Incorrect password")) {
-            errorMsg.textContent = "Incorrect password.";
-          } else if (text.includes("Unknown username")) {
-            errorMsg.textContent = "Unknown username.";
-          } else {
-            window.location.href = "main.html";
-          }
+          errorMessage = `Error ${response.status}: ${response.statusText}`;
         }
-      } catch (err) {
-        errorMsg.textContent = "An error occurred. Please try again.";
+
+        alert(errorMessage);
+        return;
       }
+
+      location.reload();
+    } catch (err) {
+      alert("An error occurred: " + err.message);
+    }
     });
   </script>
 </body>
