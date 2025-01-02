@@ -8,6 +8,9 @@
 #include <openssl/hmac.h>
 #include <math.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+
+#define MAX_WS_CONNECTIONS 50
 
 extern int debugFlag;
 extern struct mg_str loginApiUri;
@@ -22,6 +25,10 @@ extern const char *checkSessionValidity;
 extern const char *deleteExpiredSession;
 
 static const char *base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+extern pthread_mutex_t WSConnectionsLock;
+extern struct mg_connection *WSConnections[];
+extern int activeWSConnections;
 
 void NIER_LOGI(const char *tag, const char *format, ...)
 {
@@ -306,4 +313,50 @@ void cleanExpiredSessions()
         sqlite3_step(stmt);
     }
     sqlite3_finalize(stmt);
+}
+
+void addWSConnection(struct mg_connection *c) 
+{
+    pthread_mutex_lock(&WSConnectionsLock);
+    if (activeWSConnections < MAX_WS_CONNECTIONS) 
+    {
+        WSConnections[activeWSConnections++] = c;
+    } 
+    else
+    {
+        NIER_LOGW("NIER", "Max WebSocket connections reached");
+    } 
+    pthread_mutex_unlock(&WSConnectionsLock);       
+}
+
+void removeWSConnection(struct mg_connection *c) 
+{
+    struct mg_connection *WSConnectionsDuplicate[MAX_WS_CONNECTIONS];
+    int newActiveWSConnections = 0;
+    pthread_mutex_lock(&WSConnectionsLock);
+
+    for (int i = 0; i < activeWSConnections; i++) 
+    {
+        if (WSConnections[i] != c) 
+        {
+            WSConnectionsDuplicate[newActiveWSConnections++] = WSConnections[i];
+        }
+    }
+
+    for (int i = 0; i < MAX_WS_CONNECTIONS; i++) 
+    {
+        if (i < newActiveWSConnections)
+        WSConnections[i] = WSConnectionsDuplicate[i];
+        else
+        WSConnections[i] = NULL;
+    }
+    activeWSConnections = newActiveWSConnections;
+    pthread_mutex_unlock(&WSConnectionsLock);
+}
+
+void broadcastWSMessage(const char *message) 
+{
+    pthread_mutex_lock(&WSConnectionsLock);
+    for (int i = 0; i < activeWSConnections; i++) mg_ws_send(WSConnections[i], message, strlen(message), WEBSOCKET_OP_TEXT);
+    pthread_mutex_unlock(&WSConnectionsLock);
 }

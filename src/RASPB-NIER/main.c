@@ -11,7 +11,6 @@
 #include "mongoose.h"
 #include "NIER.h"
 #include <cjson/cJSON.h>
-#include <stdatomic.h>
 
 #define LISTEN_URI "ws://localhost:8000"
 #define MQTT_BROKER_URI "192.168.1.113"
@@ -19,6 +18,7 @@
 #define MQTT_PSK_IDENTITY "test1"
 #define MQTT_PSK_KEY "84fb1595364544af46ad955509b7a07c"
 #define MQTT_QOS 2
+#define MAX_WS_CONNECTIONS 50
 
 struct TOTPAttempt{
     char ipHex[33];
@@ -33,6 +33,9 @@ int disableMQTT = 0;
 int debugFlag = 0;
 sqlite3 *database = NULL;
 struct mg_http_serve_opts serveOptions = { .root_dir = "./assets/" };
+struct mg_connection *WSConnections[MAX_WS_CONNECTIONS];
+int activeWSConnections;
+pthread_mutex_t WSConnectionsLock;
 
 const char *base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const char *totpQuery = "SELECT TOTP_CODE FROM USERS WHERE NAME = ?";
@@ -183,6 +186,23 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
         }
 
         cJSON_Delete(receivedPresence);
+        cJSON *deviceListJSON = cJSON_CreateObject();
+        if (deviceListJSON == NULL) NIER_LOGE("NIER", "Failed to create JSON object");
+        sqlite3_stmt *deviceListStmt = NULL;
+        if (sqlite3_prepare_v2(database, listDevices, -1, &deviceListStmt, NULL) != SQLITE_OK) {
+            NIER_LOGE("SQLite", "Failed to prepare checkDeviceQuery: %s", sqlite3_errmsg(database));
+        }
+        while(sqlite3_step(deviceListStmt) == SQLITE_ROW) {
+            cJSON *deviceIndice = cJSON_CreateObject();
+            cJSON_AddNumberToObject(deviceIndice, "online", atoi(sqlite3_column_text(deviceListStmt,1)));
+            cJSON_AddNumberToObject(deviceIndice, "used", atoi(sqlite3_column_text(deviceListStmt,2)));
+            cJSON_AddStringToObject(deviceIndice, "deviceType", sqlite3_column_text(deviceListStmt,3));
+            cJSON_AddItemToObject(deviceListJSON, sqlite3_column_text(deviceListStmt,0), deviceIndice);
+        }
+        if ((sqlite3_finalize(deviceListStmt)) != SQLITE_OK) NIER_LOGE("SQLite", "Failed to finalize statement");
+        char *result = cJSON_PrintUnformatted(deviceListJSON);
+        broadcastWSMessage(result);   
+        cJSON_Delete(deviceListJSON);
     }
 }
 
@@ -483,6 +503,14 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
         }
         cJSON_Delete(wsMessage);
+    } 
+    else if (ev == MG_EV_WS_OPEN)
+    {
+        addWSConnection(c);
+    }
+    else if (ev == MG_EV_CLOSE)
+    {
+        if (c->is_websocket) removeWSConnection(c);
     }
 }
 

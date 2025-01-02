@@ -29,6 +29,9 @@ void createSession(const char *user, struct mg_connection *c);
 void cleanExpiredSessions();
 struct TOTPAttempt *cleanTOTPAttempts(struct TOTPAttempt *TOTPAttempts, int *TOTPAttemptsUsed, int TOTPAttemptsSize); 
 char *mgHexToAddr(char *hexAddress); 
+void addWSConnection(struct mg_connection *c); 
+void removeWSConnection(struct mg_connection *c); 
+void broadcastWSMessage(const char *message);
 
 #ifdef __cplusplus
 }
