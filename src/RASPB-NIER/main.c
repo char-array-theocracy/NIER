@@ -250,7 +250,35 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             NIER_LOGI("Mongoose", "Upgraded ip: %s to WebSocket", mgHexToAddr(addressHex));
             mg_ws_upgrade(c, hm, "Access-Control-Allow-Origin: *\r\n");
         }
-
+        else if (mg_match(hm->uri, mg_str("/api/logout"), NULL) && isAuthenticated) {
+            struct mg_str *cookieHeader = mg_http_get_header(hm, "Cookie");
+            if (!cookieHeader) 
+            {
+                mg_http_reply(c, 500, "", "Internal Server Error\n");
+                return;
+            }
+            char cookieBuf[256] = {0};
+            snprintf(cookieBuf, sizeof(cookieBuf), "%.*s", (int)cookieHeader->len, cookieHeader->buf);
+            char *sessionPtr = strstr(cookieBuf, "session_id=");
+            if (!sessionPtr) 
+            {
+                mg_http_reply(c, 500, "", "Internal Server Error\n");
+                return;
+            }
+            sessionPtr += strlen("session_id=");
+            sqlite3_stmt *deleteExpiredSessionStmt = NULL;
+            if (sqlite3_prepare_v2(database, deleteExpiredSession, -1, &deleteExpiredSessionStmt, NULL) != SQLITE_OK) 
+            {
+                mg_http_reply(c, 500, "", "Internal Server Error\n");
+                return;
+            }
+            NIER_LOGI("NIER", "Logout id: %s", sessionPtr);
+            sqlite3_bind_text(deleteExpiredSessionStmt, 1, sessionPtr, -1, SQLITE_STATIC);
+            sqlite3_step(deleteExpiredSessionStmt);
+            sqlite3_finalize(deleteExpiredSessionStmt);
+            mg_http_reply(c, 302, "Location: /login\r\n", "");
+            return;
+        }
         else if (mg_match(hm->uri, mg_str("/api/login"), NULL))
         {
             pthread_mutex_lock(&TOTPAttemptsLock);

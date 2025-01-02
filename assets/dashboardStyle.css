@@ -76,7 +76,7 @@ body {
     background-color: #1d4359;
 }
 
-.github-button {
+.linkButton {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -89,13 +89,23 @@ body {
     transition: transform 0.1s ease, background-color 0.2s;
 }
 
-.github-button:hover {
+.linkButton:hover {
     background-color: #285e7c; 
 }
 
-.github-button span {
+.linkButton span {
     font-size: 24px; 
     font-family: 'Material Symbols Outlined', sans-serif;
+}
+
+.linkButton.logout span {
+    font-size: 24px; 
+    font-family: 'Material Symbols Outlined', sans-serif;
+    color: #cd3232;
+}
+
+.linkButton.logout {
+    margin-top: auto;
 }
 
 .separator {

@@ -175,8 +175,7 @@ int checkSession(struct mg_http_message *hm, struct mg_connection *c, char *user
     struct mg_str *cookieHeader = mg_http_get_header(hm, "Cookie");
     if (!cookieHeader) return 0;
 
-    char cookieBuf[256];
-    memset(cookieBuf, 0, sizeof(cookieBuf));
+    char cookieBuf[256] = {0};
     snprintf(cookieBuf, sizeof(cookieBuf), "%.*s", (int)cookieHeader->len, cookieHeader->buf);
     char *sessionPtr = strstr(cookieBuf, "session_id=");
     if (!sessionPtr) return 0;
