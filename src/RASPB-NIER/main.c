@@ -187,6 +187,8 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
 
         cJSON_Delete(receivedPresence);
         cJSON *deviceListJSON = cJSON_CreateObject();
+        cJSON *deviceListJSONItem = cJSON_CreateObject();
+
         if (deviceListJSON == NULL) NIER_LOGE("NIER", "Failed to create JSON object");
         sqlite3_stmt *deviceListStmt = NULL;
         if (sqlite3_prepare_v2(database, listDevices, -1, &deviceListStmt, NULL) != SQLITE_OK) {
@@ -197,11 +199,11 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
             cJSON_AddNumberToObject(deviceIndice, "online", atoi(sqlite3_column_text(deviceListStmt,1)));
             cJSON_AddNumberToObject(deviceIndice, "used", atoi(sqlite3_column_text(deviceListStmt,2)));
             cJSON_AddStringToObject(deviceIndice, "deviceType", sqlite3_column_text(deviceListStmt,3));
-            cJSON_AddItemToObject(deviceListJSON, sqlite3_column_text(deviceListStmt,0), deviceIndice);
+            cJSON_AddItemToObject(deviceListJSONItem, sqlite3_column_text(deviceListStmt,0), deviceIndice);
         }
+        cJSON_AddItemToObject(deviceListJSON, "listDevices", deviceListJSONItem);
         if ((sqlite3_finalize(deviceListStmt)) != SQLITE_OK) NIER_LOGE("SQLite", "Failed to finalize statement");
-        char *result = cJSON_PrintUnformatted(deviceListJSON);
-        broadcastWSMessage(result);   
+        broadcastWSMessage(cJSON_PrintUnformatted(deviceListJSON));   
         cJSON_Delete(deviceListJSON);
     }
 }
@@ -426,6 +428,8 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
         char *call = cJSON_GetStringValue(callJSON);
         if (strncmp(call, "listDevices", 11) == 0) {
             cJSON *deviceListJSON = cJSON_CreateObject();
+            cJSON *deviceListJSONItem = cJSON_CreateObject();
+
             if (deviceListJSON == NULL) NIER_LOGE("NIER", "Failed to create JSON object");
             sqlite3_stmt *deviceListStmt = NULL;
             if (sqlite3_prepare_v2(database, listDevices, -1, &deviceListStmt, NULL) != SQLITE_OK) {
@@ -436,8 +440,9 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
                 cJSON_AddNumberToObject(deviceIndice, "online", atoi(sqlite3_column_text(deviceListStmt,1)));
                 cJSON_AddNumberToObject(deviceIndice, "used", atoi(sqlite3_column_text(deviceListStmt,2)));
                 cJSON_AddStringToObject(deviceIndice, "deviceType", sqlite3_column_text(deviceListStmt,3));
-                cJSON_AddItemToObject(deviceListJSON, sqlite3_column_text(deviceListStmt,0), deviceIndice);
+                cJSON_AddItemToObject(deviceListJSONItem, sqlite3_column_text(deviceListStmt,0), deviceIndice);
             }
+            cJSON_AddItemToObject(deviceListJSON, "listDevices", deviceListJSONItem);
             if ((sqlite3_finalize(deviceListStmt)) != SQLITE_OK) NIER_LOGE("SQLite", "Failed to finalize statement");
             char *result = cJSON_PrintUnformatted(deviceListJSON);   
             mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
