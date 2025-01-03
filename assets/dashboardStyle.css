@@ -116,6 +116,77 @@ body {
   margin: 10px auto; 
 }
 
+.contentBox.terminal {
+    display: flex;
+    flex-direction: column;
+}
+
+.terminalBox {
+    flex: 1; 
+    padding: 10px;
+    max-height: none;       
+    overflow-y: auto;
+    background-color: #0b1921;
+    color: #fff;
+    font-size: 18px;
+    line-height: 1.1;
+    margin-bottom: 10px;
+    border-radius: 30px;
+}
+
+#clearLog {
+    align-self: flex-end;
+    padding: 10px 20px;
+    background-color: #285e7c;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-top: auto; 
+}
+
+#clearLog:hover {
+    background-color: #1d4359;
+}
+
+.deviceTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+  background-color: #1e1e1e;
+  color: #dcdcdc;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.deviceTable thead {
+  background-color: #1d4359; 
+}
+
+.deviceTable thead th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 700;
+}
+
+.deviceTable tbody tr {
+  border-bottom: 1px solid #2a4450;
+}
+
+.deviceTable tbody tr:nth-child(even) {
+  background-color: #2b2b2b; 
+}
+
+.deviceTable tbody td {
+  padding: 10px 16px;
+}
+
+.deviceTable tbody tr:hover {
+  background-color: #285e7c;
+  color: #fff;
+  cursor: default; 
+}
+
 [x-cloak] {
     display: none !important;
 }
