@@ -79,24 +79,28 @@ const char *updateDevice = "UPDATE DEVICES SET ONLINE = ?, DEVICE_TYPE = ? WHERE
 const char *insertDevice = "INSERT INTO DEVICES (ID, ONLINE, USED, DEVICE_TYPE) VALUES (?, ?, 0, ?);";
 const char *checkDevicesTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='DEVICES';";
 
-void mosqetLog(struct mosquitto *mosq, void *userdata, int level, const char *str) {
+void mosqetLog(struct mosquitto *mosq, void *userdata, int level, const char *str) 
+{
     NIER_LOGD("Mosquitto", "%s", str);
 }
 
-void mosqetOnConnect(struct mosquitto *mosq, void *obj, int rc) {
+void mosqetOnConnect(struct mosquitto *mosq, void *obj, int rc) 
+{
     if (rc == 0) {
         NIER_LOGI("Mosquitto", "Connected to MQTT broker");
-        mosquitto_subscribe(mosq, NULL, "devices/presence", 1);
+        mosquitto_subscribe(mosq, NULL, "devices/presence", MQTT_QOS);
+        mosquitto_subscribe(mosq, NULL, "devices/+/status", MQTT_QOS);
+        mosquitto_subscribe(mosq, NULL, "devices/+/responses", MQTT_QOS);
         NIER_LOGI("Mosquitto", "Subscribed to devices presence topic");
     } else {
         NIER_LOGI("Mosquitto", "Failed to connect to broker, return code: %d", rc);
     }
 }
 
-void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg) {
-    NIER_LOGI("Mosquitto", "Received message on topic: %s -> %s", msg->topic, (char *)msg->payload);
-
-    if (strncmp(msg->topic, "devices/presence", 16) == 0) {
+void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg) 
+{
+    if (strncmp(msg->topic, "devices/presence", 16) == 0) 
+    {
         cJSON *receivedPresence = cJSON_Parse((char *)msg->payload);
         if (receivedPresence == NULL) {
             NIER_LOGE("NIER", "Failed to parse received JSON");
@@ -104,7 +108,8 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
         }
 
         cJSON *deviceIDObject = cJSON_GetObjectItem(receivedPresence, "deviceID");
-        if (deviceIDObject == NULL) {
+        if (deviceIDObject == NULL) 
+        {
             NIER_LOGE("NIER", "Failed to parse deviceID from received JSON");
             cJSON_Delete(receivedPresence);
             return;
@@ -112,7 +117,8 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
         char *deviceID = cJSON_GetStringValue(deviceIDObject);
 
         cJSON *isOnlineObject = cJSON_GetObjectItem(receivedPresence, "online");
-        if (isOnlineObject == NULL) {
+        if (isOnlineObject == NULL) 
+        {
             NIER_LOGE("NIER", "Failed to parse online state from received JSON");
             cJSON_Delete(receivedPresence);
             return;
@@ -120,7 +126,8 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
         int isOnline = cJSON_GetNumberValue(isOnlineObject);
 
         cJSON *deviceTypeObject = cJSON_GetObjectItem(receivedPresence, "deviceType");
-        if (deviceTypeObject == NULL) {
+        if (deviceTypeObject == NULL) 
+        {
             NIER_LOGE("NIER", "Failed to parse deviceType from received JSON");
             cJSON_Delete(receivedPresence);
             return;
@@ -129,7 +136,8 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
 
         sqlite3_stmt *stmt = NULL;
 
-        if (sqlite3_prepare_v2(database, checkDeviceOnlineState, -1, &stmt, NULL) != SQLITE_OK) {
+        if (sqlite3_prepare_v2(database, checkDeviceOnlineState, -1, &stmt, NULL) != SQLITE_OK) 
+        {
             NIER_LOGE("SQLite", "Failed to prepare checkDeviceQuery: %s", sqlite3_errmsg(database));
             cJSON_Delete(receivedPresence);
             return;
@@ -143,8 +151,10 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
             const char *currentDeviceType = (const char *)sqlite3_column_text(stmt, 1);
             sqlite3_finalize(stmt);
 
-            if (currentOnline != isOnline || (currentDeviceType != NULL && strcmp(currentDeviceType, deviceType) != 0)) {
-                if (sqlite3_prepare_v2(database, updateDevice, -1, &stmt, NULL) != SQLITE_OK) {
+            if (currentOnline != isOnline || (currentDeviceType != NULL && strcmp(currentDeviceType, deviceType) != 0)) 
+            {
+                if (sqlite3_prepare_v2(database, updateDevice, -1, &stmt, NULL) != SQLITE_OK) 
+                {
                     NIER_LOGE("SQLite", "Failed to prepare updateDeviceQuery: %s", sqlite3_errmsg(database));
                     cJSON_Delete(receivedPresence);
                     return;
@@ -153,19 +163,27 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
                 sqlite3_bind_text(stmt, 2, deviceType, -1, SQLITE_STATIC);
                 sqlite3_bind_text(stmt, 3, deviceID, -1, SQLITE_STATIC);
 
-                if (sqlite3_step(stmt) != SQLITE_DONE) {
+                if (sqlite3_step(stmt) != SQLITE_DONE) 
+                {
                     NIER_LOGE("SQLite", "Failed to update device: %s", sqlite3_errmsg(database));
-                } else {
+                } 
+                else 
+                {
                     NIER_LOGI("NIER", "Updated device %s: ONLINE=%d, DEVICE_TYPE=%s.", deviceID, isOnline, deviceType);
                 }
                 sqlite3_finalize(stmt);
-            } else {
+            } 
+            else 
+            {
                 NIER_LOGI("NIER", "Device %s is already in the desired state (ONLINE=%d, DEVICE_TYPE=%s).", deviceID, isOnline, deviceType);
             }
-        } else if (rc == SQLITE_DONE) {
+        } 
+        else if (rc == SQLITE_DONE) 
+        {
             sqlite3_finalize(stmt);
 
-            if (sqlite3_prepare_v2(database, insertDevice, -1, &stmt, NULL) != SQLITE_OK) {
+            if (sqlite3_prepare_v2(database, insertDevice, -1, &stmt, NULL) != SQLITE_OK) 
+            {
                 NIER_LOGE("SQLite", "Failed to prepare insertDeviceQuery: %s", sqlite3_errmsg(database));
                 cJSON_Delete(receivedPresence);
                 return;
@@ -174,13 +192,18 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
             sqlite3_bind_int(stmt, 2, isOnline);
             sqlite3_bind_text(stmt, 3, deviceType, -1, SQLITE_STATIC);
 
-            if (sqlite3_step(stmt) != SQLITE_DONE) {
+            if (sqlite3_step(stmt) != SQLITE_DONE) 
+            {
                 NIER_LOGE("SQLite", "Failed to insert new device: %s", sqlite3_errmsg(database));
-            } else {
+            } 
+            else 
+            {
                 NIER_LOGI("NIER","Inserted new device %s with ONLINE=%d, DEVICE_TYPE=%s.", deviceID, isOnline, deviceType);
             }
             sqlite3_finalize(stmt);
-        } else {
+        } 
+        else 
+        {
             NIER_LOGE("SQLite", "Error checking device presence: %s", sqlite3_errmsg(database));
             sqlite3_finalize(stmt);
         }
@@ -191,10 +214,12 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
 
         if (deviceListJSON == NULL) NIER_LOGE("NIER", "Failed to create JSON object");
         sqlite3_stmt *deviceListStmt = NULL;
-        if (sqlite3_prepare_v2(database, listDevices, -1, &deviceListStmt, NULL) != SQLITE_OK) {
+        if (sqlite3_prepare_v2(database, listDevices, -1, &deviceListStmt, NULL) != SQLITE_OK) 
+        {
             NIER_LOGE("SQLite", "Failed to prepare checkDeviceQuery: %s", sqlite3_errmsg(database));
         }
-        while(sqlite3_step(deviceListStmt) == SQLITE_ROW) {
+        while(sqlite3_step(deviceListStmt) == SQLITE_ROW) 
+        {
             cJSON *deviceIndice = cJSON_CreateObject();
             cJSON_AddNumberToObject(deviceIndice, "online", atoi(sqlite3_column_text(deviceListStmt,1)));
             cJSON_AddNumberToObject(deviceIndice, "used", atoi(sqlite3_column_text(deviceListStmt,2)));
@@ -205,6 +230,34 @@ void mosqetOnMessage(struct mosquitto *mosq, void *obj, const struct mosquitto_m
         if ((sqlite3_finalize(deviceListStmt)) != SQLITE_OK) NIER_LOGE("SQLite", "Failed to finalize statement");
         broadcastWSMessage(cJSON_PrintUnformatted(deviceListJSON));   
         cJSON_Delete(deviceListJSON);
+    }
+    else if (strstr(msg->topic, "status") != NULL) 
+    {
+        cJSON *deviceStatusJSON = cJSON_CreateObject();
+        cJSON *deviceStatusItem = cJSON_Parse(msg->payload);
+        char *deviceId = NULL;
+        if ((deviceId = strtok(msg->topic, "/")) &&  deviceId != NULL) 
+        {
+             deviceId = strtok(NULL, "/");
+        }
+        if (deviceId) cJSON_AddStringToObject(deviceStatusItem, "deviceId", deviceId); 
+        cJSON_AddItemToObject(deviceStatusJSON, "deviceStatus", deviceStatusItem);
+        broadcastWSMessage(cJSON_PrintUnformatted(deviceStatusJSON));
+        cJSON_Delete(deviceStatusJSON); 
+    }    
+    else if (strstr(msg->topic, "responses") != NULL) 
+    {
+        cJSON *deviceResponseJSON = cJSON_CreateObject();
+        cJSON *deviceResponseItem = cJSON_Parse(msg->payload);
+        char *deviceId = NULL;
+        if ((deviceId = strtok(msg->topic, "/")) &&  deviceId != NULL) 
+        {
+             deviceId = strtok(NULL, "/");
+        }
+        if (deviceId) cJSON_AddStringToObject(deviceResponseItem, "deviceId", deviceId); 
+        cJSON_AddItemToObject(deviceResponseJSON, "deviceResponse", deviceResponseItem);
+        broadcastWSMessage(cJSON_PrintUnformatted(deviceResponseJSON));
+        cJSON_Delete(deviceResponseJSON); 
     }
 }
 
