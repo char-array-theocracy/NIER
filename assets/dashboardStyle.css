@@ -137,7 +137,7 @@ body {
 #clearLog {
     align-self: flex-end;
     padding: 10px 20px;
-    background-color: #285e7c;
+    background-color: #0a161e;
     color: #fff;
     border: none;
     border-radius: 4px;
@@ -146,17 +146,35 @@ body {
 }
 
 #clearLog:hover {
-    background-color: #1d4359;
+    background-color: #285e7c;
 }
 
 .deviceTable {
   width: 100%;
-  border-collapse: collapse;
+  border-radius: 15px;
+  border-spacing: 0;
+  border-collapse: separate;
   margin: 0;
-  background-color: #1e1e1e;
+  background-color: #0b1921;
   color: #dcdcdc;
   font-size: 14px;
   margin-bottom: 10px;
+}
+
+.deviceTable th:first-child {
+  border-top-left-radius: 15px;
+}
+
+.deviceTable th:last-child {
+  border-top-right-radius: 15px;
+}
+
+.deviceTable tr:last-child td:first-child {
+  border-bottom-left-radius: 15px;
+}
+
+.deviceTable tr:last-child td:last-child {
+  border-bottom-right-radius: 15px;
 }
 
 .deviceTable thead {
@@ -174,7 +192,7 @@ body {
 }
 
 .deviceTable tbody tr:nth-child(even) {
-  background-color: #2b2b2b; 
+  background-color: #0b1921; 
 }
 
 .deviceTable tbody td {

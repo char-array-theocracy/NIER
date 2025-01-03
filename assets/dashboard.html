@@ -18,7 +18,7 @@
 <body>
   <div x-data="{ currentPage: 0 }">
       <div class="contentBox devices" x-transition x-show="currentPage === 0">
-        <div x-data="deviceTable()">
+        <div x-data="deviceTable()" x-init="initWebSocket()">
           <table class="deviceTable">
             <thead>
               <tr>
@@ -34,7 +34,7 @@
               <template x-for="device in devices" :key="device.deviceId">
                 <tr>
                   <td x-text="device.deviceId"></td>
-                  <td x-text="device.status"></td>
+                  <td x-text="device.online"></td>
                   <td x-text="device.deviceType"></td>
                   <td x-text="device.rssi"></td>
                   <td x-text="device.heapPercent"></td>
