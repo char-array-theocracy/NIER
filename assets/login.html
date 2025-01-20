@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NIER - Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96" />
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+  <link rel="shortcut icon" href="/icons/favicon.ico" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+  <link rel="manifest" href="/icons/site.webmanifest" />
+  <style>
+    /* colors: back:#0c1c25, 1:#6c6d6e, 2:#959390, 3:#d9d8d4 */
+    * {
+      margin: 0;
+      box-sizing: border-box;
+      font-family: 'Ubuntu', sans-serif;
+    }
+    body {
+      margin: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      background-color:#0c1c25;
+      background-image: linear-gradient(30deg, #1a2e38 12%, transparent 12.5%, transparent 87%, #1a2e38 87.5%, #1a2e38),
+      linear-gradient(150deg, #1a2e38 12%, transparent 12.5%, transparent 87%, #1a2e38 87.5%, #1a2e38),
+      linear-gradient(30deg, #1a2e38 12%, transparent 12.5%, transparent 87%, #1a2e38 87.5%, #1a2e38),
+      linear-gradient(150deg, #1a2e38 12%, transparent 12.5%, transparent 87%, #1a2e38 87.5%, #1a2e38),
+      linear-gradient(60deg, #2a4450 25%, transparent 25.5%, transparent 75%, #2a4450 75%, #2a4450), 
+      linear-gradient(60deg, #2a4450 25%, transparent 25.5%, transparent 75%, #2a4450 75%, #2a4450);
+      background-size: 80px 140px;
+      background-position: 0 0, 0 0, 40px 70px, 40px 70px, 0 0, 40px 70px;
+    }
+    .container {
+      min-width: 350px;
+      height: 320px;
+      position: relative;
+      z-index: 1;
+      background: #0c1c25;
+      border-radius: 50px;
+      box-shadow: rgba(0, 0, 0, 0.3) 0px 19px 38px, rgba(0, 0, 0, 0.22) 0px 15px 12px;
+    }
+    .loginBox {
+      max-width: 250px;
+      margin: 0 auto;
+      text-align: center;
+    }
+    h2 {
+      color: #fff;
+      margin-top: 20px;
+      margin-bottom: -20px;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+      margin-top: 20px;
+    }
+    input {
+      padding: 10px;
+      margin-top: 25px;
+      border: none;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid #000;
+      color: #000;
+      font-size: medium;
+      transition: outline-color 0.3s ease-in-out;
+    }
+    input:focus {
+      outline: 3px solid #396f88;
+    }
+    button {
+      background: #2a4450;
+      color: #fff;
+      padding: 10px;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      margin-top: 25px;
+      transition: background-color 0.3s ease-in-out;
+      font-size: large;
+    }
+    button:hover {
+      background: #396f88;
+    }
+  </style>
+</head>
+<body>
+  <img src="icons/icon.png" width="250" alt="App Icon">
+  <div class="container">
+    <div class="loginBox">
+      <h2>LOGIN</h2>
+      <form id="loginForm">
+        <input type="text" id="username" name="username" required placeholder="Username">
+        <input type="password" id="TOTP" name="TOTP" required placeholder="TOTP code">
+        <button type="submit">Submit</button>
+      </form>
+    </div>
+  </div>
+  <script>
+    const loginForm = document.getElementById("loginForm");
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = {
+        username: document.getElementById("username").value.trim(),
+        password: document.getElementById("TOTP").value.trim()
+      };
+
+      try {
+        const response = await fetch("/api/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(data),
+        });
+
+      if (!response.ok) {
+        const contentType = response.headers.get("Content-Type");
+        let errorMessage = "Login failed";
+
+        if (contentType && contentType.includes("text/plain")) {
+          errorMessage = await response.text();
+        } else {
+          errorMessage = `Error ${response.status}: ${response.statusText}`;
+        }
+
+        alert(errorMessage);
+        return;
+      }
+
+      location.reload();
+    } catch (err) {
+      alert("An error occurred: " + err.message);
+    }
+    });
+  </script>
+</body>
+</html>
