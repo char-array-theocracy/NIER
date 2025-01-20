@@ -316,6 +316,7 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
         char *dataFinal = cJSON_PrintUnformatted(sensorDataArray);
         if (strlen(dataFinal) >= MAX_SENSOR_DATA_KB * 1000) {
             NIER_LOGW("NIER", "Sensor data reached 64 kB, clearing...");
+            free(dataFinal);
             dataFinal = NULL;
         }
 
@@ -648,6 +649,14 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
 
 int main(int argc, char **argv)
 {
+    if (pthread_mutex_init(&TOTPAttemptsLock, NULL) != 0) {
+        NIER_LOGE("NIER", "Failed to initialize TOTP Attempts pthread mutex lock");
+        return -1;
+    }
+    if (pthread_mutex_init(&WSConnectionsLock, NULL) != 0) {
+        NIER_LOGE("NIER", "Failed to initialize WS connections pthread mutex lock");
+        return -1;
+    }
     if (argc > 1)
     {
         for (int i = 1; i < argc; i++) 
