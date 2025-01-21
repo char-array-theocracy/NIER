@@ -13,7 +13,6 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
   <link rel="manifest" href="/icons/site.webmanifest" />
   <style>
-    /* colors: back:#0c1c25, 1:#6c6d6e, 2:#959390, 3:#d9d8d4 */
     * {
       margin: 0;
       box-sizing: border-box;
@@ -37,7 +36,7 @@
     }
     .container {
       min-width: 350px;
-      height: 320px;
+      height: 400px;
       position: relative;
       z-index: 1;
       background: #0c1c25;
@@ -87,6 +86,11 @@
     button:hover {
       background: #396f88;
     }
+    .timeout-message {
+      color: #ff6961;
+      margin-top: 15px;
+      font-size: medium;
+    }
   </style>
 </head>
 <body>
@@ -96,18 +100,22 @@
       <h2>LOGIN</h2>
       <form id="loginForm">
         <input type="text" id="username" name="username" required placeholder="Username">
-        <input type="password" id="TOTP" name="TOTP" required placeholder="TOTP code">
+        <input type="password" id="password" name="password" required placeholder="Password">
+        <input type="text" id="TOTP" name="TOTP" required placeholder="TOTP code">
         <button type="submit">Submit</button>
+        <p id="timeoutMessage" class="timeout-message" style="display: none;"></p>
       </form>
     </div>
   </div>
   <script>
     const loginForm = document.getElementById("loginForm");
+    const timeoutMessage = document.getElementById("timeoutMessage");
     loginForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const data = {
         username: document.getElementById("username").value.trim(),
-        password: document.getElementById("TOTP").value.trim()
+        password: document.getElementById("password").value.trim(),
+        TOTP: document.getElementById("TOTP").value.trim(),
       };
 
       try {
@@ -119,24 +127,36 @@
           body: JSON.stringify(data),
         });
 
-      if (!response.ok) {
-        const contentType = response.headers.get("Content-Type");
-        let errorMessage = "Login failed";
+        if (!response.ok) {
+          alert("Login failed");
 
-        if (contentType && contentType.includes("text/plain")) {
-          errorMessage = await response.text();
-        } else {
-          errorMessage = `Error ${response.status}: ${response.statusText}`;
+          document.querySelectorAll("#loginForm input, #loginForm button").forEach((element) => {
+            element.disabled = true;
+          });
+
+          let remainingTime = 30;
+          timeoutMessage.textContent = `Please wait ${remainingTime} seconds before trying again.`;
+          timeoutMessage.style.display = "block";
+
+          const interval = setInterval(() => {
+            remainingTime -= 1;
+            timeoutMessage.textContent = `Please wait ${remainingTime} seconds before trying again.`;
+            if (remainingTime <= 0) {
+              clearInterval(interval);
+              document.querySelectorAll("#loginForm input, #loginForm button").forEach((element) => {
+                element.disabled = false;
+              });
+              timeoutMessage.style.display = "none";
+            }
+          }, 1000);
+
+          return;
         }
 
-        alert(errorMessage);
-        return;
+        location.reload();
+      } catch (err) {
+        alert("An error occurred: " + err.message);
       }
-
-      location.reload();
-    } catch (err) {
-      alert("An error occurred: " + err.message);
-    }
     });
   </script>
 </body>

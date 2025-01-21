@@ -45,16 +45,17 @@ int activeWSConnections;
 pthread_mutex_t WSConnectionsLock;
 
 const char *base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-const char *totpQuery = "SELECT TOTP_CODE FROM USERS WHERE NAME = ?";
+const char *totpPasswordQuery = "SELECT PASSWORD, TOTP_CODE FROM USERS WHERE NAME = ?";
 const char *checkUsersTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='USERS';";
 const char *createUsersTable =
   "CREATE TABLE IF NOT EXISTS USERS("
   "NAME TEXT UNIQUE PRIMARY KEY,"
+  "PASSWORD TEXT NOT NULL,"
   "TOTP_CODE TEXT NOT NULL"
   ") WITHOUT ROWID;";
-const char *insertUserStatement = "INSERT INTO USERS (NAME, TOTP_CODE) VALUES (?, ?);";
+const char *insertUserStatement = "INSERT INTO USERS (NAME, PASSWORD, TOTP_CODE) VALUES (?, ?, ?);";
 const char *deleteUserStatement = "DELETE FROM USERS WHERE NAME = ?";
-const char *listUsersQuery = "SELECT NAME, TOTP_CODE FROM USERS";
+const char *listUsersQuery = "SELECT NAME, PASSWORD, TOTP_CODE FROM USERS";
 
 const char *checkSessionsTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='SESSIONS';";
 const char *createSessionsTable =
@@ -469,8 +470,13 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             {
                 TOTPAttemptsSize *= 2;
                 struct TOTPAttempt *temp = realloc(TOTPAttempts, TOTPAttemptsSize*sizeof(struct TOTPAttempt));
-                if (temp == NULL) NIER_LOGE("NIER", "Failed to reallocate TOTP attempts array");
-                TOTPAttempts = temp;
+                if (temp == NULL) {
+                    NIER_LOGE("NIER", "Failed to reallocate TOTP attempts array");
+                    mg_http_reply(c, 500, "", "Internal server error\n");
+                    return;
+                } else {
+                    TOTPAttempts = temp;
+                } 
             }
             strncpy(TOTPAttempts[TOTPAttemptsUsed].ipHex, addressHex, sizeof(TOTPAttempts[TOTPAttemptsUsed].ipHex));
             TOTPAttempts[TOTPAttemptsUsed].ipHex[sizeof(TOTPAttempts[TOTPAttemptsUsed].ipHex) - 1] = '\0';
@@ -493,6 +499,7 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
                 return;
             }
             cJSON *password = cJSON_GetObjectItem(loginInfo, "password");
+            cJSON *totpCode = cJSON_GetObjectItem(loginInfo, "TOTP");
             cJSON *username = cJSON_GetObjectItem(loginInfo, "username");
 
             if (!username || !cJSON_IsString(username) || !password || !cJSON_IsString(password))
@@ -502,7 +509,7 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
                 return;
             }
             sqlite3_stmt *totpQueryStatement = NULL;
-            if (sqlite3_prepare_v2(database, totpQuery, -1, &totpQueryStatement, NULL) != SQLITE_OK)
+            if (sqlite3_prepare_v2(database, totpPasswordQuery, -1, &totpQueryStatement, NULL) != SQLITE_OK)
             {
                 cJSON_Delete(loginInfo);
                 mg_http_reply(c, 500, "", "Internal Server Error\n");
@@ -513,31 +520,32 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             {
                 case SQLITE_ROW:
                 {
-                    const unsigned char *totpCode = sqlite3_column_text(totpQueryStatement, 0);
-                    if (!totpCode)
+                    const char *dbPassword = (const char *)sqlite3_column_text(totpQueryStatement, 0);
+                    const unsigned char *dbTotpCode = sqlite3_column_text(totpQueryStatement, 1);
+                    if (!dbTotpCode || !dbPassword)
                     {
-                        mg_http_reply(c, 400, "", "Invalid password\n");
+                        mg_http_reply(c, 500, "", "Internal server error\n");
                         break;
                     }
                     char generated[7];
                     memset(generated, 0, sizeof(generated));
-                    if (generateTOTP((const char *)totpCode, 30, 6, generated) != 0)
+                    if (generateTOTP((const char *)dbTotpCode, 30, 6, generated) != 0)
                     {
                         mg_http_reply(c, 500, "", "Internal Server Error\n");
                         break;
                     }
-                    if (strncmp(generated, cJSON_GetStringValue(password), 6) == 0)
+                    if (strncmp(generated, cJSON_GetStringValue(totpCode), 6) == 0 && strncmp(dbPassword, cJSON_GetStringValue(password), strlen(cJSON_GetStringValue(password))) == 0)
                     {
                         createSession(cJSON_GetStringValue(username), c);
                     }
                     else
                     {
-                        mg_http_reply(c, 200, "", "Incorrect password\n");
+                        mg_http_reply(c, 300, "", "Incorrect login details\n");
                     }
                     break;
                 }
                 case SQLITE_DONE:
-                    mg_http_reply(c, 400, "", "Unknown username\n");
+                    mg_http_reply(c, 200, "", "Incorrect login details\n");
                     break;
                 default:
                     mg_http_reply(c, 500, "", "Internal Server Error\n");
@@ -803,6 +811,15 @@ int main(int argc, char **argv)
                             NIER_LOGW("NIER", "User name too long!");
                             break;
                         }
+                        char username[256] = {0};
+                        strncpy(username, token, 255);
+                        if ((token = strtok(NULL, " \n")) == NULL) {
+                            NIER_LOGW("NIER", "No password provided!");
+                        }
+                        if (strlen(token) > 255) {
+                            NIER_LOGW("NIER", "Password too long!");
+                            break;
+                        }
                         unsigned char randomBytes[32];
                         char sharedSecret[33];
                         memset(sharedSecret, 0, sizeof(sharedSecret));
@@ -821,8 +838,9 @@ int main(int argc, char **argv)
                         }
                         else
                         {
-                            sqlite3_bind_text(insertStatement, 1, token, -1, SQLITE_STATIC);
-                            sqlite3_bind_text(insertStatement, 2, sharedSecret, -1, SQLITE_STATIC);
+                            sqlite3_bind_text(insertStatement, 1, username, -1, SQLITE_STATIC);
+                            sqlite3_bind_text(insertStatement, 2, token, -1, SQLITE_STATIC);
+                            sqlite3_bind_text(insertStatement, 3, sharedSecret, -1, SQLITE_STATIC);
                             if (sqlite3_step(insertStatement) != SQLITE_DONE)
                             {
                                 NIER_LOGE("SQLite", "Failed to insert user: %s", sqlite3_errmsg(database));
@@ -832,7 +850,7 @@ int main(int argc, char **argv)
                         {
                             NIER_LOGE("SQLite", "Failed to finalize statement: %s", sqlite3_errmsg(database));
                         }
-                        NIER_LOGI("NIER", "TOTP setup key for user %s - %s", token, sharedSecret);
+                        NIER_LOGI("NIER", "TOTP setup key for user %s - %s", username, sharedSecret);
                     }
                     while ((token = strtok(NULL, " \n")) != NULL);
                 }
@@ -875,14 +893,11 @@ int main(int argc, char **argv)
                     while (sqlite3_step(stmt) == SQLITE_ROW)
                     {
                         const unsigned char *name = sqlite3_column_text(stmt, 0);
-                        const unsigned char *totpCode = sqlite3_column_text(stmt, 1);
-                        if (name && totpCode)
+                        const unsigned char *password = sqlite3_column_text(stmt, 1);
+                        const unsigned char *totpCode = sqlite3_column_text(stmt, 2);
+                        if (name && totpCode && password)
                         {
-                            NIER_LOGI("NIER", "User: %s, TOTP Key: %s", name, totpCode);
-                        }
-                        else if (name)
-                        {
-                            NIER_LOGI("NIER", "User: %s, TOTP Key: (none)", name);
+                            NIER_LOGI("NIER", "User: %s, Password: %s, TOTP Key: %s", name, password, totpCode);
                         }
                     }
                     sqlite3_finalize(stmt);
