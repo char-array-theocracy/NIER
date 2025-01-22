@@ -11,6 +11,10 @@
 #include "mongoose.h"
 #include "NIER.h"
 #include <cjson/cJSON.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <ifaddrs.h>
 
 #ifdef __GNUC__
 #define UNUSED __attribute__((unused))
@@ -23,23 +27,26 @@
 #define MQTT_BROKER_PORT 8883
 #define MQTT_PSK_IDENTITY "test1"
 #define MQTT_PSK_KEY "84fb1595364544af46ad955509b7a07c"
+#define BEACON_PORT 54321
+#define BEACON_IP "255.255.255.255"
 #define MQTT_QOS 2
 #define MAX_WS_CONNECTIONS 50
 #define MAX_SENSOR_DATA_KB 64
 
-struct TOTPAttempt{
+struct TOTPAttempt
+{
     char ipHex[33];
     time_t attemptTime;
 };
-pthread_mutex_t TOTPAttemptsLock; 
+pthread_mutex_t TOTPAttemptsLock;
 struct TOTPAttempt *TOTPAttempts;
-int TOTPAttemptsSize  = 0;
-int TOTPAttemptsUsed  = 0;
+int TOTPAttemptsSize = 0;
+int TOTPAttemptsUsed = 0;
 struct mosquitto *mosquittoThing;
 int disableMQTT = 0;
 int debugFlag = 0;
 sqlite3 *database = NULL;
-struct mg_http_serve_opts serveOptions = { .root_dir = "./assets/" };
+struct mg_http_serve_opts serveOptions = {.root_dir = "./assets/"};
 struct mg_connection *WSConnections[MAX_WS_CONNECTIONS];
 int activeWSConnections;
 pthread_mutex_t WSConnectionsLock;
@@ -48,40 +55,40 @@ const char *base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const char *totpPasswordQuery = "SELECT PASSWORD, TOTP_CODE FROM USERS WHERE NAME = ?";
 const char *checkUsersTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='USERS';";
 const char *createUsersTable =
-  "CREATE TABLE IF NOT EXISTS USERS("
-  "NAME TEXT UNIQUE PRIMARY KEY,"
-  "PASSWORD TEXT NOT NULL,"
-  "TOTP_CODE TEXT NOT NULL"
-  ") WITHOUT ROWID;";
+    "CREATE TABLE IF NOT EXISTS USERS("
+    "NAME TEXT UNIQUE PRIMARY KEY,"
+    "PASSWORD TEXT NOT NULL,"
+    "TOTP_CODE TEXT NOT NULL"
+    ") WITHOUT ROWID;";
 const char *insertUserStatement = "INSERT INTO USERS (NAME, PASSWORD, TOTP_CODE) VALUES (?, ?, ?);";
 const char *deleteUserStatement = "DELETE FROM USERS WHERE NAME = ?";
 const char *listUsersQuery = "SELECT NAME, PASSWORD, TOTP_CODE FROM USERS";
 
 const char *checkSessionsTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='SESSIONS';";
 const char *createSessionsTable =
-  "CREATE TABLE IF NOT EXISTS SESSIONS("
-  "ID TEXT PRIMARY KEY,"
-  "USERNAME TEXT NOT NULL,"
-  "EXPIRATION INTEGER,"
-  "IP TEXT"
-  ") WITHOUT ROWID;";
+    "CREATE TABLE IF NOT EXISTS SESSIONS("
+    "ID TEXT PRIMARY KEY,"
+    "USERNAME TEXT NOT NULL,"
+    "EXPIRATION INTEGER,"
+    "IP TEXT"
+    ") WITHOUT ROWID;";
 const char *insertSessionStatement = "INSERT INTO SESSIONS (ID, USERNAME, EXPIRATION, IP) VALUES (?, ?, ?, ?);";
 const char *checkSessionValidity = "SELECT USERNAME, EXPIRATION, IP FROM SESSIONS WHERE ID = ?";
 const char *deleteExpiredSession = "DELETE FROM SESSIONS WHERE ID = ?";
 
 const char *createDevicesTable =
-  "CREATE TABLE IF NOT EXISTS DEVICES("
-  "ID TEXT UNIQUE PRIMARY KEY,"
-  "ONLINE BOOLEAN NOT NULL,"
-  "DEVICE_TYPE TEXT NOT NULL,"
-  "DATA TEXT"
-  ") WITHOUT ROWID;";
+    "CREATE TABLE IF NOT EXISTS DEVICES("
+    "ID TEXT UNIQUE PRIMARY KEY,"
+    "ONLINE BOOLEAN NOT NULL,"
+    "DEVICE_TYPE TEXT NOT NULL,"
+    "DATA TEXT"
+    ") WITHOUT ROWID;";
 const char *listDevices =
-  "SELECT ID, "
-  "CASE WHEN ONLINE THEN '1' ELSE '0' END AS STATE, "
-  "DEVICE_TYPE, "
-  "DATA "
-  "FROM DEVICES;";
+    "SELECT ID, "
+    "CASE WHEN ONLINE THEN '1' ELSE '0' END AS STATE, "
+    "DEVICE_TYPE, "
+    "DATA "
+    "FROM DEVICES;";
 const char *checkDeviceOnlineState = "SELECT ONLINE, DEVICE_TYPE FROM DEVICES WHERE ID = ?;";
 const char *updateDevice = "UPDATE DEVICES SET ONLINE = ?, DEVICE_TYPE = ? WHERE ID = ?;";
 const char *insertDevice = "INSERT INTO DEVICES (ID, ONLINE, DEVICE_TYPE, DATA) VALUES (?, ?, ?, ?);";
@@ -89,36 +96,106 @@ const char *checkDevicesTable = "SELECT name FROM sqlite_master WHERE type='tabl
 const char *updateDeviceData = "UPDATE DEVICES SET DATA = ? WHERE ID = ?";
 const char *checkDeviceData = "SELECT DATA FROM DEVICES WHERE ID = ?;";
 
-void mosqetLog(UNUSED struct mosquitto *mosq, UNUSED void *userdata, UNUSED int level, const char *str) 
+void *udpBeaconTask(UNUSED void *arg)
+{
+    struct ifaddrs *interfaces = NULL;
+    struct ifaddrs *tempAddress = NULL;
+    cJSON *broadcastMessageJSON = cJSON_CreateObject();
+    if (broadcastMessageJSON)
+    {
+        if (getifaddrs(&interfaces) == 0)
+        {
+            tempAddress = interfaces;
+            while (tempAddress != NULL)
+            {
+                if (tempAddress->ifa_addr->sa_family == AF_INET && strcmp(tempAddress->ifa_name, "lo") != 0 && strstr(tempAddress->ifa_name, "wl") != NULL)
+                {
+                    char ip[INET_ADDRSTRLEN];
+                    void *addr = &((struct sockaddr_in *)tempAddress->ifa_addr)->sin_addr;
+                    inet_ntop(AF_INET, addr, ip, INET_ADDRSTRLEN);
+                    NIER_LOGI("NIER", "UDP beacon: Interface: %s, IP Address: %s", tempAddress->ifa_name, ip);
+                    cJSON_AddStringToObject(broadcastMessageJSON, "ip", ip);
+                }
+                tempAddress = tempAddress->ifa_next;
+            }
+        }
+        else
+        {
+            NIER_LOGE("NIER", "Failed to acquire ip address for UDP broadcast");
+            return NULL;
+        }
+        char broadcastMessage[256] = {0};
+        snprintf(broadcastMessage, 255, "%s", cJSON_PrintUnformatted(broadcastMessageJSON));
+        cJSON_Delete(broadcastMessageJSON);
+
+        int sockfd;
+        struct sockaddr_in broadcastAddress;
+        int broadcastEnable = 1;
+
+        if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+        {
+            NIER_LOGE("NIER", "Failed to create the UDP broadcast socket");
+            return NULL;
+        }
+
+        if (setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcastEnable, sizeof(broadcastEnable)) < 0)
+        {
+            NIER_LOGE("NIER", "Failed to set up the UDP broadcast socket");
+            return NULL;
+        }
+
+        memset(&broadcastAddress, 0, sizeof(broadcastAddress));
+        broadcastAddress.sin_family = AF_INET;
+        broadcastAddress.sin_port = htons(BEACON_PORT);
+        broadcastAddress.sin_addr.s_addr = inet_addr(BEACON_IP);
+
+        for (;;)
+        {
+            if (sendto(sockfd, broadcastMessage, strlen(broadcastMessage), 0, (struct sockaddr *)&broadcastAddress, sizeof(broadcastAddress)) != (ssize_t)strlen(broadcastMessage))
+            {
+                NIER_LOGW("NIER", "Failed to send broadcast message");
+            }
+            sleep(1);
+        }
+    }
+    freeifaddrs(interfaces);
+    return NULL;
+}
+
+void mosqetLog(UNUSED struct mosquitto *mosq, UNUSED void *userdata, UNUSED int level, const char *str)
 {
     NIER_LOGD("Mosquitto", "%s", str);
 }
 
-void mosqetOnConnect(struct mosquitto *mosq, UNUSED void *obj, int rc) 
+void mosqetOnConnect(struct mosquitto *mosq, UNUSED void *obj, int rc)
 {
-    if (rc == 0) {
+    if (rc == 0)
+    {
         NIER_LOGI("Mosquitto", "Connected to MQTT broker");
         mosquitto_subscribe(mosq, NULL, "devices/presence", MQTT_QOS);
         mosquitto_subscribe(mosq, NULL, "devices/+/status", MQTT_QOS);
         mosquitto_subscribe(mosq, NULL, "devices/+/responses", MQTT_QOS);
-        mosquitto_subscribe(mosq, NULL, "devices/+/temperatureHumiditySensor",  MQTT_QOS);
-    } else {
+        mosquitto_subscribe(mosq, NULL, "devices/+/temperatureHumiditySensor", MQTT_QOS);
+    }
+    else
+    {
         NIER_LOGI("Mosquitto", "Failed to connect to broker, return code: %d", rc);
     }
 }
 
-void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const struct mosquitto_message *msg) 
+void mosqetOnMessage(UNUSED struct mosquitto *mosq, UNUSED void *obj, const struct mosquitto_message *msg)
 {
-    if (strncmp(msg->topic, "devices/presence", 16) == 0) 
+    if (strncmp(msg->topic, "devices/presence", 16) == 0)
     {
         cJSON *receivedPresence = cJSON_Parse((char *)msg->payload);
-        if (receivedPresence == NULL) {
+        if (receivedPresence == NULL)
+        {
             NIER_LOGE("NIER", "Failed to parse received JSON");
             return;
         }
 
         cJSON *deviceIDObject = cJSON_GetObjectItem(receivedPresence, "deviceID");
-        if (deviceIDObject == NULL) 
+        if (deviceIDObject == NULL)
         {
             NIER_LOGE("NIER", "Failed to parse deviceID from received JSON");
             cJSON_Delete(receivedPresence);
@@ -127,7 +204,7 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
         char *deviceID = cJSON_GetStringValue(deviceIDObject);
 
         cJSON *isOnlineObject = cJSON_GetObjectItem(receivedPresence, "online");
-        if (isOnlineObject == NULL) 
+        if (isOnlineObject == NULL)
         {
             NIER_LOGE("NIER", "Failed to parse online state from received JSON");
             cJSON_Delete(receivedPresence);
@@ -136,7 +213,7 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
         int isOnline = cJSON_GetNumberValue(isOnlineObject);
 
         cJSON *deviceTypeObject = cJSON_GetObjectItem(receivedPresence, "deviceType");
-        if (deviceTypeObject == NULL) 
+        if (deviceTypeObject == NULL)
         {
             NIER_LOGE("NIER", "Failed to parse deviceType from received JSON");
             cJSON_Delete(receivedPresence);
@@ -146,7 +223,7 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
 
         sqlite3_stmt *stmt = NULL;
 
-        if (sqlite3_prepare_v2(database, checkDeviceOnlineState, -1, &stmt, NULL) != SQLITE_OK) 
+        if (sqlite3_prepare_v2(database, checkDeviceOnlineState, -1, &stmt, NULL) != SQLITE_OK)
         {
             NIER_LOGE("SQLite", "Failed to prepare checkDeviceQuery: %s", sqlite3_errmsg(database));
             cJSON_Delete(receivedPresence);
@@ -156,14 +233,15 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
         sqlite3_bind_text(stmt, 1, deviceID, -1, SQLITE_STATIC);
 
         int rc = sqlite3_step(stmt);
-        if (rc == SQLITE_ROW) {
+        if (rc == SQLITE_ROW)
+        {
             int currentOnline = sqlite3_column_int(stmt, 0);
             const char *currentDeviceType = (const char *)sqlite3_column_text(stmt, 1);
             sqlite3_finalize(stmt);
 
-            if (currentOnline != isOnline || (currentDeviceType != NULL && strcmp(currentDeviceType, deviceType) != 0)) 
+            if (currentOnline != isOnline || (currentDeviceType != NULL && strcmp(currentDeviceType, deviceType) != 0))
             {
-                if (sqlite3_prepare_v2(database, updateDevice, -1, &stmt, NULL) != SQLITE_OK) 
+                if (sqlite3_prepare_v2(database, updateDevice, -1, &stmt, NULL) != SQLITE_OK)
                 {
                     NIER_LOGE("SQLite", "Failed to prepare updateDeviceQuery: %s", sqlite3_errmsg(database));
                     cJSON_Delete(receivedPresence);
@@ -173,26 +251,26 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
                 sqlite3_bind_text(stmt, 2, deviceType, -1, SQLITE_STATIC);
                 sqlite3_bind_text(stmt, 3, deviceID, -1, SQLITE_STATIC);
 
-                if (sqlite3_step(stmt) != SQLITE_DONE) 
+                if (sqlite3_step(stmt) != SQLITE_DONE)
                 {
                     NIER_LOGE("SQLite", "Failed to update device: %s", sqlite3_errmsg(database));
-                } 
-                else 
+                }
+                else
                 {
                     NIER_LOGI("NIER", "Updated device %s: ONLINE=%d, DEVICE_TYPE=%s.", deviceID, isOnline, deviceType);
                 }
                 sqlite3_finalize(stmt);
-            } 
-            else 
+            }
+            else
             {
                 NIER_LOGI("NIER", "Device %s is already in the desired state (ONLINE=%d, DEVICE_TYPE=%s).", deviceID, isOnline, deviceType);
             }
-        } 
-        else if (rc == SQLITE_DONE) 
+        }
+        else if (rc == SQLITE_DONE)
         {
             sqlite3_finalize(stmt);
 
-            if (sqlite3_prepare_v2(database, insertDevice, -1, &stmt, NULL) != SQLITE_OK) 
+            if (sqlite3_prepare_v2(database, insertDevice, -1, &stmt, NULL) != SQLITE_OK)
             {
                 NIER_LOGE("SQLite", "Failed to prepare insertDeviceQuery: %s", sqlite3_errmsg(database));
                 cJSON_Delete(receivedPresence);
@@ -202,17 +280,17 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
             sqlite3_bind_int(stmt, 2, isOnline);
             sqlite3_bind_text(stmt, 3, deviceType, -1, SQLITE_STATIC);
 
-            if (sqlite3_step(stmt) != SQLITE_DONE) 
+            if (sqlite3_step(stmt) != SQLITE_DONE)
             {
                 NIER_LOGE("SQLite", "Failed to insert new device: %s", sqlite3_errmsg(database));
-            } 
-            else 
+            }
+            else
             {
-                NIER_LOGI("NIER","Inserted new device %s with ONLINE=%d, DEVICE_TYPE=%s.", deviceID, isOnline, deviceType);
+                NIER_LOGI("NIER", "Inserted new device %s with ONLINE=%d, DEVICE_TYPE=%s.", deviceID, isOnline, deviceType);
             }
             sqlite3_finalize(stmt);
-        } 
-        else 
+        }
+        else
         {
             NIER_LOGE("SQLite", "Error checking device presence: %s", sqlite3_errmsg(database));
             sqlite3_finalize(stmt);
@@ -222,24 +300,25 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
 
         broadcastWSMessage(getDeviceList());
     }
-    else if (strstr(msg->topic, "status") != NULL) 
+    else if (strstr(msg->topic, "status") != NULL)
     {
         cJSON *deviceStatusJSON = cJSON_CreateObject();
         cJSON *deviceStatusItem = cJSON_Parse(msg->payload);
         char *deviceId = NULL;
         char topicCopy[256] = {0};
         snprintf(topicCopy, sizeof(topicCopy) - 1, "%s", msg->topic);
-        if ((deviceId = strtok(topicCopy, "/")) &&  deviceId != NULL) 
+        if ((deviceId = strtok(topicCopy, "/")) && deviceId != NULL)
         {
-             deviceId = strtok(NULL, "/");
+            deviceId = strtok(NULL, "/");
         }
 
-        if (deviceId) cJSON_AddStringToObject(deviceStatusItem, "deviceId", deviceId); 
+        if (deviceId)
+            cJSON_AddStringToObject(deviceStatusItem, "deviceId", deviceId);
         cJSON_AddItemToObject(deviceStatusJSON, "deviceStatus", deviceStatusItem);
         broadcastWSMessage(cJSON_PrintUnformatted(deviceStatusJSON));
-        cJSON_Delete(deviceStatusJSON); 
-    }    
-    else if (strstr(msg->topic, "responses") != NULL) 
+        cJSON_Delete(deviceStatusJSON);
+    }
+    else if (strstr(msg->topic, "responses") != NULL)
     {
         cJSON *deviceResponseJSON = cJSON_CreateObject();
         cJSON *deviceResponseItem = cJSON_Parse(msg->payload);
@@ -247,43 +326,47 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
         char *deviceId = NULL;
         char topicCopy[256] = {0};
         snprintf(topicCopy, sizeof(topicCopy) - 1, "%s", msg->topic);
-        if ((deviceId = strtok(topicCopy, "/")) &&  deviceId != NULL) 
+        if ((deviceId = strtok(topicCopy, "/")) && deviceId != NULL)
         {
-             deviceId = strtok(NULL, "/");
+            deviceId = strtok(NULL, "/");
         }
 
-        if (deviceId) cJSON_AddStringToObject(deviceResponseItem, "deviceId", deviceId); 
+        if (deviceId)
+            cJSON_AddStringToObject(deviceResponseItem, "deviceId", deviceId);
         cJSON_AddItemToObject(deviceResponseJSON, "deviceResponse", deviceResponseItem);
         cJSON *deviceResponse = cJSON_GetObjectItem(deviceResponseJSON, "deviceResponse");
 
-        if (strncmp(cJSON_GetStringValue(call), "changeSwitchState", 17) == 0) 
+        if (strncmp(cJSON_GetStringValue(call), "changeSwitchState", 17) == 0)
         {
             sqlite3_stmt *updateDeviceDataStmt = NULL;
             cJSON *data = cJSON_GetObjectItem(deviceResponse, "state");
             char dataFinal[16] = {0};
             snprintf(dataFinal, 15, "%d", (int)cJSON_GetNumberValue(data));
-            if (sqlite3_prepare_v2(database, updateDeviceData, -1, &updateDeviceDataStmt, NULL) != SQLITE_OK)  {
+            if (sqlite3_prepare_v2(database, updateDeviceData, -1, &updateDeviceDataStmt, NULL) != SQLITE_OK)
+            {
                 NIER_LOGE("SQLite", "Failed to prepare updateDeviceData statement");
             }
-            sqlite3_bind_text(updateDeviceDataStmt, 1, dataFinal, -1 ,SQLITE_STATIC);
+            sqlite3_bind_text(updateDeviceDataStmt, 1, dataFinal, -1, SQLITE_STATIC);
             sqlite3_bind_text(updateDeviceDataStmt, 2, deviceId, -1, SQLITE_STATIC);
-            if (sqlite3_step(updateDeviceDataStmt) != SQLITE_DONE) {
-                NIER_LOGE("SQLite", "Failed to update data:  %s", sqlite3_errmsg(database));  
-            } 
+            if (sqlite3_step(updateDeviceDataStmt) != SQLITE_DONE)
+            {
+                NIER_LOGE("SQLite", "Failed to update data:  %s", sqlite3_errmsg(database));
+            }
             sqlite3_finalize(updateDeviceDataStmt);
             broadcastWSMessage(getDeviceList());
-        } else 
+        }
+        else
         {
             broadcastWSMessage(cJSON_PrintUnformatted(deviceResponseJSON));
         }
         cJSON_Delete(deviceResponseJSON);
     }
-    else if (strstr(msg->topic, "temperatureHumiditySensor") != NULL) 
+    else if (strstr(msg->topic, "temperatureHumiditySensor") != NULL)
     {
         char *deviceId = NULL;
         char topicCopy[256] = {0};
         snprintf(topicCopy, sizeof(topicCopy) - 1, "%s", msg->topic);
-        if ((deviceId = strtok(topicCopy, "/")) && deviceId != NULL) 
+        if ((deviceId = strtok(topicCopy, "/")) && deviceId != NULL)
         {
             deviceId = strtok(NULL, "/");
         }
@@ -292,30 +375,31 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
         cJSON *sensorDataArray = NULL;
 
         sqlite3_stmt *checkDeviceDataStmt = NULL;
-        if (sqlite3_prepare_v2(database, checkDeviceData, -1, &checkDeviceDataStmt, NULL) != SQLITE_OK) 
+        if (sqlite3_prepare_v2(database, checkDeviceData, -1, &checkDeviceDataStmt, NULL) != SQLITE_OK)
         {
             NIER_LOGE("SQLite", "Failed to prepare checkDeviceDataStmt: %s", sqlite3_errmsg(database));
             return;
         }
 
         sqlite3_bind_text(checkDeviceDataStmt, 1, deviceId, -1, SQLITE_STATIC);
-        if (sqlite3_step(checkDeviceDataStmt) == SQLITE_ROW) 
+        if (sqlite3_step(checkDeviceDataStmt) == SQLITE_ROW)
         {
             const unsigned char *existingData = sqlite3_column_text(checkDeviceDataStmt, 0);
-            if (existingData) 
+            if (existingData)
             {
                 sensorDataArray = cJSON_Parse((const char *)existingData);
             }
         }
 
-        if (!sensorDataArray) 
+        if (!sensorDataArray)
         {
             sensorDataArray = cJSON_CreateArray();
         }
 
         cJSON_AddItemToArray(sensorDataArray, receivedSensorDataJSON);
         char *dataFinal = cJSON_PrintUnformatted(sensorDataArray);
-        if (strlen(dataFinal) >= MAX_SENSOR_DATA_KB * 1000) {
+        if (strlen(dataFinal) >= MAX_SENSOR_DATA_KB * 1000)
+        {
             NIER_LOGW("NIER", "Sensor data reached 64 kB, clearing...");
             free(dataFinal);
             dataFinal = NULL;
@@ -324,22 +408,23 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
         sqlite3_finalize(checkDeviceDataStmt);
 
         sqlite3_stmt *updateDeviceDataStmt = NULL;
-        if (sqlite3_prepare_v2(database, updateDeviceData, -1, &updateDeviceDataStmt, NULL) != SQLITE_OK) 
+        if (sqlite3_prepare_v2(database, updateDeviceData, -1, &updateDeviceDataStmt, NULL) != SQLITE_OK)
         {
             NIER_LOGE("SQLite", "Failed to prepare updateDeviceData statement");
             free(dataFinal);
             cJSON_Delete(sensorDataArray);
             return;
         }
-        
-        if (dataFinal == NULL) {
+
+        if (dataFinal == NULL)
+        {
             dataFinal = strdup("[]");
         }
 
         sqlite3_bind_text(updateDeviceDataStmt, 1, dataFinal, -1, SQLITE_STATIC);
         sqlite3_bind_text(updateDeviceDataStmt, 2, deviceId, -1, SQLITE_STATIC);
 
-        if (sqlite3_step(updateDeviceDataStmt) != SQLITE_DONE) 
+        if (sqlite3_step(updateDeviceDataStmt) != SQLITE_DONE)
         {
             NIER_LOGE("SQLite", "Failed to update data: %s", sqlite3_errmsg(database));
         }
@@ -352,10 +437,10 @@ void mosqetOnMessage(UNUSED struct mosquitto *mosq,  UNUSED void *obj, const str
     }
 }
 
-
-void mosqetOnDisconnect(UNUSED struct mosquitto *mosq, UNUSED void *obj, int rc) {
+void mosqetOnDisconnect(UNUSED struct mosquitto *mosq, UNUSED void *obj, int rc)
+{
     NIER_LOGE("Mosquitto", "Disconnected from broker with return code: %d", rc);
-    while ((mosquitto_connect(mosquittoThing, MQTT_BROKER_URI, MQTT_BROKER_PORT, 10)) != MOSQ_ERR_SUCCESS) 
+    while ((mosquitto_connect(mosquittoThing, MQTT_BROKER_URI, MQTT_BROKER_PORT, 10)) != MOSQ_ERR_SUCCESS)
     {
         NIER_LOGW("Mosquitto", "Failed to reconnect to broker");
         sleep(4);
@@ -383,45 +468,51 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
         cleanExpiredSessions();
         bool isAuthenticated = checkSession(hm, c, userName);
 
-        if (!mg_match(hm->uri, mg_str("/icons/*"), NULL)) 
+        if (!mg_match(hm->uri, mg_str("/icons/*"), NULL))
         {
-            if (!isAuthenticated) {
-                if (!(mg_match(hm->uri, mg_str("/login"), NULL) || 
-                    mg_match(hm->uri, mg_str("/api/login"), NULL))) {
+            if (!isAuthenticated)
+            {
+                if (!(mg_match(hm->uri, mg_str("/login"), NULL) ||
+                      mg_match(hm->uri, mg_str("/api/login"), NULL)))
+                {
                     mg_http_reply(c, 302, "Location: /login\r\n", "");
                     return;
                 }
-            } else {
-                if (mg_match(hm->uri, mg_str("/login"), NULL) || 
-                    mg_match(hm->uri, mg_str("/api/login"), NULL) || mg_match(hm->uri, mg_str("/"), NULL)) 
+            }
+            else
+            {
+                if (mg_match(hm->uri, mg_str("/login"), NULL) ||
+                    mg_match(hm->uri, mg_str("/api/login"), NULL) || mg_match(hm->uri, mg_str("/"), NULL))
                 {
                     mg_http_reply(c, 302, "Location: /dashboard\r\n", "");
                     return;
                 }
             }
-        } 
+        }
 
-        if (isAuthenticated) NIER_LOGI("NIER", "Authenticated connection: user: %s, ip: %s", userName, mgHexToAddr(addressHex));
+        if (isAuthenticated)
+            NIER_LOGI("NIER", "Authenticated connection: user: %s, ip: %s", userName, mgHexToAddr(addressHex));
 
-        if (mg_match(hm->uri, mg_str("/dashboard"), NULL) && isAuthenticated) 
+        if (mg_match(hm->uri, mg_str("/dashboard"), NULL) && isAuthenticated)
         {
             mg_http_serve_file(c, hm, "./assets/dashboard.html", &serveOptions);
         }
-        else if (mg_match(hm->uri, mg_str("/login"), NULL)) 
+        else if (mg_match(hm->uri, mg_str("/login"), NULL))
         {
             mg_http_serve_file(c, hm, "./assets/login.html", &serveOptions);
         }
-        else if (mg_match(hm->uri, mg_str("/test"), NULL) && isAuthenticated) 
+        else if (mg_match(hm->uri, mg_str("/test"), NULL) && isAuthenticated)
         {
             mg_http_serve_file(c, hm, "./assets/test.html", &serveOptions);
         }
-        else if (mg_match(hm->uri, mg_str("/websocket"), NULL) && isAuthenticated) 
+        else if (mg_match(hm->uri, mg_str("/websocket"), NULL) && isAuthenticated)
         {
             mg_ws_upgrade(c, hm, "Access-Control-Allow-Origin: *\r\n");
         }
-        else if (mg_match(hm->uri, mg_str("/api/logout"), NULL) && isAuthenticated) {
+        else if (mg_match(hm->uri, mg_str("/api/logout"), NULL) && isAuthenticated)
+        {
             struct mg_str *cookieHeader = mg_http_get_header(hm, "Cookie");
-            if (!cookieHeader) 
+            if (!cookieHeader)
             {
                 mg_http_reply(c, 500, "", "Internal Server Error\n");
                 return;
@@ -429,14 +520,14 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             char cookieBuf[256] = {0};
             snprintf(cookieBuf, sizeof(cookieBuf), "%.*s", (int)cookieHeader->len, cookieHeader->buf);
             char *sessionPtr = strstr(cookieBuf, "session_id=");
-            if (!sessionPtr) 
+            if (!sessionPtr)
             {
                 mg_http_reply(c, 500, "", "Internal Server Error\n");
                 return;
             }
             sessionPtr += strlen("session_id=");
             sqlite3_stmt *deleteExpiredSessionStmt = NULL;
-            if (sqlite3_prepare_v2(database, deleteExpiredSession, -1, &deleteExpiredSessionStmt, NULL) != SQLITE_OK) 
+            if (sqlite3_prepare_v2(database, deleteExpiredSession, -1, &deleteExpiredSessionStmt, NULL) != SQLITE_OK)
             {
                 mg_http_reply(c, 500, "", "Internal Server Error\n");
                 return;
@@ -452,12 +543,14 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
         {
             pthread_mutex_lock(&TOTPAttemptsLock);
             TOTPAttempts = cleanTOTPAttempts(TOTPAttempts, &TOTPAttemptsUsed, TOTPAttemptsSize);
-            if (TOTPAttempts == NULL) NIER_LOGE("NIER", "Failed to clean TOTP Attempts");   
-            for (int i = 0; i < TOTPAttemptsUsed; i++) {
-                if (strncmp(TOTPAttempts[i].ipHex, addressHex, 32) == 0) 
+            if (TOTPAttempts == NULL)
+                NIER_LOGE("NIER", "Failed to clean TOTP Attempts");
+            for (int i = 0; i < TOTPAttemptsUsed; i++)
+            {
+                if (strncmp(TOTPAttempts[i].ipHex, addressHex, 32) == 0)
                 {
                     int timeDifference = (int)(time(NULL) - TOTPAttempts[i].attemptTime);
-                    if (timeDifference < 30) 
+                    if (timeDifference < 30)
                     {
                         NIER_LOGW("NIER", "IP: %s in login attempt timeout", mgHexToAddr(addressHex));
                         mg_http_reply(c, 400, "", "Please try again in %d seconds\n", 30 - timeDifference);
@@ -466,17 +559,20 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
                     }
                 }
             }
-            if ((TOTPAttemptsUsed + 1) > TOTPAttemptsSize) 
+            if ((TOTPAttemptsUsed + 1) > TOTPAttemptsSize)
             {
                 TOTPAttemptsSize *= 2;
-                struct TOTPAttempt *temp = realloc(TOTPAttempts, TOTPAttemptsSize*sizeof(struct TOTPAttempt));
-                if (temp == NULL) {
+                struct TOTPAttempt *temp = realloc(TOTPAttempts, TOTPAttemptsSize * sizeof(struct TOTPAttempt));
+                if (temp == NULL)
+                {
                     NIER_LOGE("NIER", "Failed to reallocate TOTP attempts array");
                     mg_http_reply(c, 500, "", "Internal server error\n");
                     return;
-                } else {
+                }
+                else
+                {
                     TOTPAttempts = temp;
-                } 
+                }
             }
             strncpy(TOTPAttempts[TOTPAttemptsUsed].ipHex, addressHex, sizeof(TOTPAttempts[TOTPAttemptsUsed].ipHex));
             TOTPAttempts[TOTPAttemptsUsed].ipHex[sizeof(TOTPAttempts[TOTPAttemptsUsed].ipHex) - 1] = '\0';
@@ -518,52 +614,53 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             sqlite3_bind_text(totpQueryStatement, 1, cJSON_GetStringValue(username), -1, SQLITE_STATIC);
             switch (sqlite3_step(totpQueryStatement))
             {
-                case SQLITE_ROW:
+            case SQLITE_ROW:
+            {
+                const char *dbPassword = (const char *)sqlite3_column_text(totpQueryStatement, 0);
+                const unsigned char *dbTotpCode = sqlite3_column_text(totpQueryStatement, 1);
+                if (!dbTotpCode || !dbPassword)
                 {
-                    const char *dbPassword = (const char *)sqlite3_column_text(totpQueryStatement, 0);
-                    const unsigned char *dbTotpCode = sqlite3_column_text(totpQueryStatement, 1);
-                    if (!dbTotpCode || !dbPassword)
-                    {
-                        mg_http_reply(c, 500, "", "Internal server error\n");
-                        break;
-                    }
-                    char generated[7];
-                    memset(generated, 0, sizeof(generated));
-                    if (generateTOTP((const char *)dbTotpCode, 30, 6, generated) != 0)
-                    {
-                        mg_http_reply(c, 500, "", "Internal Server Error\n");
-                        break;
-                    }
-                    if (strncmp(generated, cJSON_GetStringValue(totpCode), 6) == 0 && strncmp(dbPassword, cJSON_GetStringValue(password), strlen(cJSON_GetStringValue(password))) == 0)
-                    {
-                        createSession(cJSON_GetStringValue(username), c);
-                    }
-                    else
-                    {
-                        mg_http_reply(c, 300, "", "Incorrect login details\n");
-                    }
+                    mg_http_reply(c, 500, "", "Internal server error\n");
                     break;
                 }
-                case SQLITE_DONE:
-                    mg_http_reply(c, 200, "", "Incorrect login details\n");
-                    break;
-                default:
+                char generated[7];
+                memset(generated, 0, sizeof(generated));
+                if (generateTOTP((const char *)dbTotpCode, 30, 6, generated) != 0)
+                {
                     mg_http_reply(c, 500, "", "Internal Server Error\n");
                     break;
+                }
+                if (strncmp(generated, cJSON_GetStringValue(totpCode), 6) == 0 && strncmp(dbPassword, cJSON_GetStringValue(password), strlen(cJSON_GetStringValue(password))) == 0)
+                {
+                    createSession(cJSON_GetStringValue(username), c);
+                }
+                else
+                {
+                    mg_http_reply(c, 300, "", "Incorrect login details\n");
+                }
+                break;
+            }
+            case SQLITE_DONE:
+                mg_http_reply(c, 200, "", "Incorrect login details\n");
+                break;
+            default:
+                mg_http_reply(c, 500, "", "Internal Server Error\n");
+                break;
             }
             sqlite3_finalize(totpQueryStatement);
             cJSON_Delete(loginInfo);
             return;
-        } else 
+        }
+        else
         {
             mg_http_serve_dir(c, hm, &serveOptions);
         }
     }
-    else if (ev == MG_EV_WS_MSG) 
+    else if (ev == MG_EV_WS_MSG)
     {
-        struct mg_ws_message *wm = (struct mg_ws_message *) ev_data;
+        struct mg_ws_message *wm = (struct mg_ws_message *)ev_data;
         cJSON *wsMessage = cJSON_Parse(wm->data.buf);
-        if (wsMessage == NULL) 
+        if (wsMessage == NULL)
         {
             NIER_LOGW("NIER", "Failed to parse WS message JSON");
             char result[] = "{\"error\":\"invalid JSON\"}";
@@ -571,7 +668,7 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             return;
         }
         cJSON *callJSON = cJSON_GetObjectItem(wsMessage, "call");
-        if (callJSON == NULL) 
+        if (callJSON == NULL)
         {
             char result[] = "{\"error\":\"invalid call\"}";
             mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
@@ -580,21 +677,24 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
         }
         char *call = cJSON_GetStringValue(callJSON);
 
-        if (strncmp(call, "listDevices", 11) == 0) {
+        if (strncmp(call, "listDevices", 11) == 0)
+        {
             char *result = getDeviceList();
-            mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);   
+            mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
         }
-        else if (strncmp(call, "relayMessage", 12) == 0) 
+        else if (strncmp(call, "relayMessage", 12) == 0)
         {
             cJSON *deviceIDJSON = cJSON_GetObjectItem(wsMessage, "deviceID");
-            if (deviceIDJSON == NULL) {
+            if (deviceIDJSON == NULL)
+            {
                 char result[] = "{\"error\":\"invalid deviceID\"}";
                 mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
                 cJSON_Delete(wsMessage);
                 return;
             }
             char *deviceID = cJSON_GetStringValue(deviceIDJSON);
-            if (deviceID == NULL || strlen(deviceID) > 1011) { 
+            if (deviceID == NULL || strlen(deviceID) > 1011)
+            {
                 char result[] = "{\"error\":\"invalid or too long deviceID\"}";
                 mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
                 cJSON_Delete(wsMessage);
@@ -602,7 +702,8 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             }
 
             cJSON *payloadJSON = cJSON_GetObjectItem(wsMessage, "message");
-            if (payloadJSON == NULL) {
+            if (payloadJSON == NULL)
+            {
                 char result[] = "{\"error\":\"invalid message\"}";
                 mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
                 cJSON_Delete(wsMessage);
@@ -610,7 +711,8 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             }
 
             char *payload = cJSON_PrintUnformatted(payloadJSON);
-            if (payload == NULL) {
+            if (payload == NULL)
+            {
                 char result[] = "{\"error\":\"could not process message\"}";
                 mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
                 cJSON_Delete(wsMessage);
@@ -620,57 +722,70 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             char topic[1024] = {0};
             snprintf(topic, 1023, "devices/%s/calls", deviceID);
 
-            if (mosquittoThing == NULL) {
+            if (mosquittoThing == NULL)
+            {
                 char result[] = "{\"error\":\"MQTT client not initialized\"}";
                 mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
-                free(payload); 
+                free(payload);
                 cJSON_Delete(wsMessage);
                 return;
             }
 
-            if (mosquitto_publish(mosquittoThing, NULL, topic, strlen(payload), payload, MQTT_QOS, 0) != MOSQ_ERR_SUCCESS) {
+            if (mosquitto_publish(mosquittoThing, NULL, topic, strlen(payload), payload, MQTT_QOS, 0) != MOSQ_ERR_SUCCESS)
+            {
                 char result[] = "{\"error\":\"failure publishing\"}";
                 mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
-                free(payload); 
+                free(payload);
                 cJSON_Delete(wsMessage);
                 return;
             }
-
         }
 
-        else 
+        else
         {
             char result[] = "{\"error\":\"unknown call\"}";
             mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
         }
         cJSON_Delete(wsMessage);
-    } 
+    }
     else if (ev == MG_EV_WS_OPEN)
     {
         addWSConnection(c);
     }
     else if (ev == MG_EV_CLOSE)
     {
-        if (c->is_websocket) removeWSConnection(c);
+        if (c->is_websocket)
+            removeWSConnection(c);
     }
 }
 
 int main(int argc, char **argv)
 {
-    if (pthread_mutex_init(&TOTPAttemptsLock, NULL) != 0) {
+    if (pthread_mutex_init(&TOTPAttemptsLock, NULL) != 0)
+    {
         NIER_LOGE("NIER", "Failed to initialize TOTP Attempts pthread mutex lock");
         return -1;
     }
-    if (pthread_mutex_init(&WSConnectionsLock, NULL) != 0) {
+    if (pthread_mutex_init(&WSConnectionsLock, NULL) != 0)
+    {
         NIER_LOGE("NIER", "Failed to initialize WS connections pthread mutex lock");
         return -1;
     }
+
+    pthread_t udpBeaconTaskId;
+    if (pthread_create(&udpBeaconTaskId, NULL, udpBeaconTask, NULL) != 0)
+    {
+        NIER_LOGE("NIER", "Failed to create thread for udp beacon: %s", strerror(errno));
+    }
+
     if (argc > 1)
     {
-        for (int i = 1; i < argc; i++) 
+        for (int i = 1; i < argc; i++)
         {
-            if (strncmp(argv[i], "-d", 2) == 0) debugFlag = 1;
-            else if (strncmp(argv[i], "--Disable-MQTT", 13) == 0) disableMQTT = 1;
+            if (strncmp(argv[i], "-d", 2) == 0)
+                debugFlag = 1;
+            else if (strncmp(argv[i], "--Disable-MQTT", 13) == 0)
+                disableMQTT = 1;
             else
             {
                 printf("-d Debug mode\n");
@@ -764,23 +879,28 @@ int main(int argc, char **argv)
         sqlite3_finalize(sessionsCheckStmt);
     }
 
-    if (disableMQTT == 0) 
+    if (disableMQTT == 0)
     {
         mosquitto_lib_init();
-        if (!(mosquittoThing = mosquitto_new(NULL, true, NULL))) NIER_LOGE("Mosquitto", "Failed to create a mosquitto instance"); 
+        if (!(mosquittoThing = mosquitto_new(NULL, true, NULL)))
+            NIER_LOGE("Mosquitto", "Failed to create a mosquitto instance");
         mosquitto_connect_callback_set(mosquittoThing, mosqetOnConnect);
         mosquitto_message_callback_set(mosquittoThing, mosqetOnMessage);
         mosquitto_disconnect_callback_set(mosquittoThing, mosqetOnDisconnect);
         mosquitto_log_callback_set(mosquittoThing, mosqetLog);
-        if ((mosquitto_tls_psk_set(mosquittoThing, MQTT_PSK_KEY, MQTT_PSK_IDENTITY, NULL)) != MOSQ_ERR_SUCCESS) NIER_LOGE("Mosquitto", "Failed to set up TLS-PSK");
-        if ((mosquitto_connect(mosquittoThing, MQTT_BROKER_URI, MQTT_BROKER_PORT, 10)) != MOSQ_ERR_SUCCESS) NIER_LOGE("Mosquitto", "Failed to connect to broker");
-        if ((mosquitto_loop_start(mosquittoThing)) != MOSQ_ERR_SUCCESS) NIER_LOGE("Mosquitto", "Failed to start event loop");
+        if ((mosquitto_tls_psk_set(mosquittoThing, MQTT_PSK_KEY, MQTT_PSK_IDENTITY, NULL)) != MOSQ_ERR_SUCCESS)
+            NIER_LOGE("Mosquitto", "Failed to set up TLS-PSK");
+        if ((mosquitto_connect(mosquittoThing, MQTT_BROKER_URI, MQTT_BROKER_PORT, 10)) != MOSQ_ERR_SUCCESS)
+            NIER_LOGE("Mosquitto", "Failed to connect to broker");
+        if ((mosquitto_loop_start(mosquittoThing)) != MOSQ_ERR_SUCCESS)
+            NIER_LOGE("Mosquitto", "Failed to start event loop");
     }
 
     struct mg_mgr mgr;
     mg_mgr_init(&mgr);
     TOTPAttempts = calloc(10, sizeof(struct TOTPAttempt));
-    if (TOTPAttempts == NULL) NIER_LOGE("NIER", "Failed to allocate memory for TOTP Attempt tracking");
+    if (TOTPAttempts == NULL)
+        NIER_LOGE("NIER", "Failed to allocate memory for TOTP Attempt tracking");
     TOTPAttemptsSize = 10;
     pthread_mutex_unlock(&TOTPAttemptsLock);
 
@@ -807,16 +927,19 @@ int main(int argc, char **argv)
                 {
                     do
                     {
-                        if (strlen(token) > 255) {
+                        if (strlen(token) > 255)
+                        {
                             NIER_LOGW("NIER", "User name too long!");
                             break;
                         }
                         char username[256] = {0};
                         strncpy(username, token, 255);
-                        if ((token = strtok(NULL, " \n")) == NULL) {
+                        if ((token = strtok(NULL, " \n")) == NULL)
+                        {
                             NIER_LOGW("NIER", "No password provided!");
                         }
-                        if (strlen(token) > 255) {
+                        if (strlen(token) > 255)
+                        {
                             NIER_LOGW("NIER", "Password too long!");
                             break;
                         }
@@ -851,8 +974,7 @@ int main(int argc, char **argv)
                             NIER_LOGE("SQLite", "Failed to finalize statement: %s", sqlite3_errmsg(database));
                         }
                         NIER_LOGI("NIER", "TOTP setup key for user %s - %s", username, sharedSecret);
-                    }
-                    while ((token = strtok(NULL, " \n")) != NULL);
+                    } while ((token = strtok(NULL, " \n")) != NULL);
                 }
             }
             else if (strncmp(userInput, "deleteUser", 10) == 0)
@@ -881,8 +1003,7 @@ int main(int argc, char **argv)
                         {
                             NIER_LOGE("SQLite", "Failed to prepare statement: %s", sqlite3_errmsg(database));
                         }
-                    }
-                    while ((token = strtok(NULL, " \n")) != NULL);
+                    } while ((token = strtok(NULL, " \n")) != NULL);
                 }
             }
             else if (strncmp(userInput, "listUsers", 9) == 0)
@@ -927,7 +1048,7 @@ int main(int argc, char **argv)
             }
         }
     }
-    if (disableMQTT == 0) 
+    if (disableMQTT == 0)
     {
         mosquitto_disconnect(mosquittoThing);
         mosquitto_destroy(mosquittoThing);

@@ -65,6 +65,8 @@ static TaskHandle_t mqttKeepAliveTaskHandle = NULL;
 #define I2C_MASTER_RX_BUF_DISABLE 0
 #define SENSOR_I2C_ADDRESS 0x38
 
+
+
 static void timeSyncNotification(struct timeval *tv)
 {
     ESP_LOGI(TAG, "Time synchronized with NTP server");
@@ -337,7 +339,7 @@ static void smartSwitch(void *pvParamaters)
         .intr_type = GPIO_INTR_DISABLE
     };
     gpio_config(&io_conf);
-    int restoreState = -1;
+    int32_t restoreState = -1;
     ESP_ERROR_CHECK_WITHOUT_ABORT(nvs_get_i32(nvsHandle, "switchState", &restoreState));
     if (restoreState >= 0) {
         gpio_set_level(GPIO_NUM_0, restoreState);
@@ -350,10 +352,10 @@ static void smartSwitch(void *pvParamaters)
     char respTopic[128] = {0};
     snprintf(respTopic, sizeof(respTopic), "devices/%s/responses", deviceIdentifier);
     char respStr[256] = {0};
-    snprintf(respStr, sizeof(respStr), "{\"call\":\"changeSwitchState\",\"state\":%d}", restoreState);
+    snprintf(respStr, sizeof(respStr), "{\"call\":\"changeSwitchState\",\"state\":%ld}", restoreState);
     esp_mqtt_client_publish(client, respTopic, respStr, 0, MQTT_QOS, 0);
 
-    ESP_LOGI(TAG, "Restored switch state: %d", restoreState);
+    ESP_LOGI(TAG, "Restored switch state: %ld", restoreState);
     while (1) {
         cJSON *receivedMessage = NULL;
         if (xQueueReceive(mqttDeviceQueue, &receivedMessage, portMAX_DELAY) != pdTRUE) {
