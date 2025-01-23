@@ -23,7 +23,7 @@
 #endif
 
 #define LISTEN_URI "ws://localhost:8000"
-#define MQTT_BROKER_URI "192.168.1.113"
+#define MQTT_BROKER_URI "0.0.0.0"
 #define MQTT_BROKER_PORT 8883
 #define MQTT_PSK_IDENTITY "test1"
 #define MQTT_PSK_KEY "84fb1595364544af46ad955509b7a07c"
@@ -98,6 +98,7 @@ const char *checkDeviceData = "SELECT DATA FROM DEVICES WHERE ID = ?;";
 
 int setupMosqBroker()
 {
+    mkdir("./logs", 0755);
     const char *homeDirectory = getenv("HOME");
     FILE *mosqBrokerConfDef = fopen("./config/mosquitto.conf.def", "r");
     if (mosqBrokerConfDef == NULL)
@@ -876,6 +877,7 @@ int main(int argc, char **argv)
         NIER_LOGE("NIER", "Failed to start mosquitto broker");
         return -1;
     }
+    sleep(1);
 
     if (debugFlag == 1)
     {
@@ -1107,7 +1109,7 @@ int main(int argc, char **argv)
             else if (strncmp(userInput, "help", 4) == 0)
             {
                 printf("Commands:\n");
-                printf("  createUser <user1> ...    Create one or more users\n");
+                printf("  createUser <user1> <pass> ...    Create one or more users\n");
                 printf("  deleteUser <user1> ...    Delete one or more users\n");
                 printf("  listUsers                 List all users and their TOTP keys\n");
                 printf("  exit                      Exit program\n");
