@@ -17,7 +17,8 @@ extern int debugFlag;
 extern struct mg_str loginApiUri;
 extern sqlite3 *database;
 
-struct TOTPAttempt{
+struct TOTPAttempt
+{
     char ipHex[33];
     time_t attemptTime;
 };
@@ -112,21 +113,25 @@ int generateTOTP(const char *base32Secret, int period, int digits, char *output)
     for (size_t i = 0; i < encodedLen; i++)
     {
         char c = base32Secret[i];
-        if (c == '=' || c == ' ' || c == '-') continue;
+        if (c == '=' || c == ' ' || c == '-')
+            continue;
         const char *ptr = strchr(base32Chars, c);
-        if (!ptr) return -1;
+        if (!ptr)
+            return -1;
         int value = (int)(ptr - base32Chars);
         accumulator = (accumulator << 5) | (value & 0x1F);
         bitsCollected += 5;
         if (bitsCollected >= 8)
         {
             bitsCollected -= 8;
-            if (decodedIdx >= sizeof(decodedSecret)) return -1;
+            if (decodedIdx >= sizeof(decodedSecret))
+                return -1;
             decodedSecret[decodedIdx++] = (unsigned char)((accumulator >> bitsCollected) & 0xFF);
         }
     }
     int secretLen = (int)decodedIdx;
-    if (secretLen <= 0) return -1;
+    if (secretLen <= 0)
+        return -1;
 
     uint64_t currentTime = (uint64_t)time(NULL) / (uint64_t)period;
     unsigned char timeBytes[8];
@@ -139,13 +144,11 @@ int generateTOTP(const char *base32Secret, int period, int digits, char *output)
 
     unsigned int hmacLen = 0;
     unsigned char *hmacResult = HMAC(EVP_sha1(), decodedSecret, secretLen, timeBytes, sizeof(timeBytes), NULL, &hmacLen);
-    if (!hmacResult) return -1;
+    if (!hmacResult)
+        return -1;
 
     int offset = hmacResult[hmacLen - 1] & 0x0F;
-    uint32_t code = ((hmacResult[offset] & 0x7F) << 24)
-                  | ((hmacResult[offset + 1] & 0xFF) << 16)
-                  | ((hmacResult[offset + 2] & 0xFF) << 8)
-                  |  (hmacResult[offset + 3] & 0xFF);
+    uint32_t code = ((hmacResult[offset] & 0x7F) << 24) | ((hmacResult[offset + 1] & 0xFF) << 16) | ((hmacResult[offset + 2] & 0xFF) << 8) | (hmacResult[offset + 3] & 0xFF);
 
     uint32_t token = code % (uint32_t)pow(10, digits);
     snprintf(output, digits + 1, "%0*u", digits, token);
@@ -154,7 +157,8 @@ int generateTOTP(const char *base32Secret, int period, int digits, char *output)
 
 void mgAddrToHex(struct mg_addr *addr, char *dest, size_t destSize)
 {
-    if (!dest || destSize < 33) return;
+    if (!dest || destSize < 33)
+        return;
     memset(dest, 0, destSize);
     for (int i = 0; i < (int)sizeof(addr->ip); i++)
     {
@@ -163,9 +167,9 @@ void mgAddrToHex(struct mg_addr *addr, char *dest, size_t destSize)
     dest[32] = 0;
 }
 
-char *mgHexToAddr(char *hexAddress) 
+char *mgHexToAddr(char *hexAddress)
 {
-    char truncatedHex[9] =  {0};
+    char truncatedHex[9] = {0};
     strncpy(truncatedHex, hexAddress, 8);
     truncatedHex[8] = '\0';
     uint32_t ipHex = strtoul(truncatedHex, NULL, 16);
@@ -181,12 +185,14 @@ char *mgHexToAddr(char *hexAddress)
 int checkSession(struct mg_http_message *hm, struct mg_connection *c, char *userName)
 {
     struct mg_str *cookieHeader = mg_http_get_header(hm, "Cookie");
-    if (!cookieHeader) return 0;
+    if (!cookieHeader)
+        return 0;
 
     char cookieBuf[256] = {0};
     snprintf(cookieBuf, sizeof(cookieBuf), "%.*s", (int)cookieHeader->len, cookieHeader->buf);
     char *sessionPtr = strstr(cookieBuf, "session_id=");
-    if (!sessionPtr) return 0;
+    if (!sessionPtr)
+        return 0;
     sessionPtr += strlen("session_id=");
 
     char sessionId[128];
@@ -201,7 +207,8 @@ int checkSession(struct mg_http_message *hm, struct mg_connection *c, char *user
     mgAddrToHex(&c->rem, ipHex, sizeof(ipHex));
 
     sqlite3_stmt *stmt = NULL;
-    if (sqlite3_prepare_v2(database, checkSessionValidity, -1, &stmt, NULL) != SQLITE_OK) return 0;
+    if (sqlite3_prepare_v2(database, checkSessionValidity, -1, &stmt, NULL) != SQLITE_OK)
+        return 0;
     sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_STATIC);
 
     int result = 0;
@@ -209,7 +216,8 @@ int checkSession(struct mg_http_message *hm, struct mg_connection *c, char *user
     {
         time_t exp = (time_t)sqlite3_column_int(stmt, 1);
         const unsigned char *dbip = sqlite3_column_text(stmt, 2);
-        if (userName != NULL) {
+        if (userName != NULL)
+        {
             const char *userNamePointer = (const char *)sqlite3_column_text(stmt, 0);
             strncpy(userName, userNamePointer, 255);
         }
@@ -278,28 +286,29 @@ void createSession(const char *user, struct mg_connection *c)
                  "Content-Type: text/plain\r\n"
                  "Content-Length: 16\r\n\r\n"
                  "Login successful\n",
-                 sessionId, 5 * 3600);
+              sessionId, 5 * 3600);
 }
 
-struct TOTPAttempt *cleanTOTPAttempts(struct TOTPAttempt *TOTPAttempts, int *TOTPAttemptsUsed, int TOTPAttemptsSize) 
+struct TOTPAttempt *cleanTOTPAttempts(struct TOTPAttempt *TOTPAttempts, int *TOTPAttemptsUsed, int TOTPAttemptsSize)
 {
-    if (TOTPAttempts == NULL) {
-    return calloc(TOTPAttemptsSize, sizeof(struct TOTPAttempt));
+    if (TOTPAttempts == NULL)
+    {
+        return calloc(TOTPAttemptsSize, sizeof(struct TOTPAttempt));
     }
     struct TOTPAttempt *TOTPAttemptsDuplicate = calloc(TOTPAttemptsSize, sizeof(struct TOTPAttempt));
     int validIndices = 0;
-    for (int i = 0; i < *TOTPAttemptsUsed; i ++) 
+    for (int i = 0; i < *TOTPAttemptsUsed; i++)
     {
-        if ((time(NULL) - TOTPAttempts[i].attemptTime) < 30) 
+        if ((time(NULL) - TOTPAttempts[i].attemptTime) < 30)
         {
             TOTPAttemptsDuplicate[validIndices].attemptTime = TOTPAttempts[i].attemptTime;
             strncpy(TOTPAttemptsDuplicate[validIndices].ipHex, TOTPAttempts[i].ipHex, sizeof(TOTPAttemptsDuplicate[validIndices].ipHex) - 1);
             TOTPAttemptsDuplicate[validIndices].ipHex[sizeof(TOTPAttemptsDuplicate[validIndices].ipHex) - 1] = '\0';
-            validIndices++;       
+            validIndices++;
         }
     }
     *TOTPAttemptsUsed = validIndices;
-    free (TOTPAttempts);
+    free(TOTPAttempts);
     return TOTPAttemptsDuplicate;
 }
 
@@ -316,85 +325,94 @@ void cleanExpiredSessions()
     sqlite3_finalize(stmt);
 }
 
-void addWSConnection(struct mg_connection *c) 
+void addWSConnection(struct mg_connection *c)
 {
     pthread_mutex_lock(&WSConnectionsLock);
-    if (activeWSConnections < MAX_WS_CONNECTIONS) 
+    if (activeWSConnections < MAX_WS_CONNECTIONS)
     {
         WSConnections[activeWSConnections++] = c;
-    } 
+    }
     else
     {
         NIER_LOGW("NIER", "Max WebSocket connections reached");
-    } 
-    pthread_mutex_unlock(&WSConnectionsLock);       
+    }
+    pthread_mutex_unlock(&WSConnectionsLock);
 }
 
-void removeWSConnection(struct mg_connection *c) 
+void removeWSConnection(struct mg_connection *c)
 {
     struct mg_connection *WSConnectionsDuplicate[MAX_WS_CONNECTIONS];
     int newActiveWSConnections = 0;
     pthread_mutex_lock(&WSConnectionsLock);
 
-    for (int i = 0; i < activeWSConnections; i++) 
+    for (int i = 0; i < activeWSConnections; i++)
     {
-        if (WSConnections[i] != c) 
+        if (WSConnections[i] != c)
         {
             WSConnectionsDuplicate[newActiveWSConnections++] = WSConnections[i];
         }
     }
 
-    for (int i = 0; i < MAX_WS_CONNECTIONS; i++) 
+    for (int i = 0; i < MAX_WS_CONNECTIONS; i++)
     {
         if (i < newActiveWSConnections)
-        WSConnections[i] = WSConnectionsDuplicate[i];
+            WSConnections[i] = WSConnectionsDuplicate[i];
         else
-        WSConnections[i] = NULL;
+            WSConnections[i] = NULL;
     }
     activeWSConnections = newActiveWSConnections;
     pthread_mutex_unlock(&WSConnectionsLock);
 }
 
-void broadcastWSMessage(const char *message) 
+void broadcastWSMessage(const char *message)
 {
     pthread_mutex_lock(&WSConnectionsLock);
-    for (int i = 0; i < activeWSConnections; i++) mg_ws_send(WSConnections[i], message, strlen(message), WEBSOCKET_OP_TEXT);
+    for (int i = 0; i < activeWSConnections; i++)
+        mg_ws_send(WSConnections[i], message, strlen(message), WEBSOCKET_OP_TEXT);
     pthread_mutex_unlock(&WSConnectionsLock);
 }
 
-char *getDeviceList() 
+char *getDeviceList()
 {
     cJSON *deviceListJSON = cJSON_CreateObject();
     cJSON *deviceArrayJSON = cJSON_AddArrayToObject(deviceListJSON, "listDevices");
-    
-    if (deviceListJSON == NULL) NIER_LOGE("NIER", "Failed to create JSON object");
-    
+
+    if (deviceListJSON == NULL)
+        NIER_LOGE("NIER", "Failed to create JSON object");
+
     sqlite3_stmt *deviceListStmt = NULL;
-    if (sqlite3_prepare_v2(database, listDevices, -1, &deviceListStmt, NULL) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(database, listDevices, -1, &deviceListStmt, NULL) != SQLITE_OK)
+    {
         NIER_LOGE("SQLite", "Failed to prepare checkDeviceQuery: %s", sqlite3_errmsg(database));
     }
-    
-    while(sqlite3_step(deviceListStmt) == SQLITE_ROW) {
+
+    while (sqlite3_step(deviceListStmt) == SQLITE_ROW)
+    {
         cJSON *deviceIndice = cJSON_CreateObject();
-        cJSON_AddStringToObject(deviceIndice, "deviceId", (const char *)sqlite3_column_text(deviceListStmt,0));
-        cJSON_AddNumberToObject(deviceIndice, "online", atoi((const char *)sqlite3_column_text(deviceListStmt,1)));
-        cJSON_AddStringToObject(deviceIndice, "deviceType", (const char *)sqlite3_column_text(deviceListStmt,2));
-        
-        const char *dataStr = (const char *)sqlite3_column_text(deviceListStmt,3);
-        if (dataStr && dataStr[0] == '[') {
+        cJSON_AddStringToObject(deviceIndice, "deviceId", (const char *)sqlite3_column_text(deviceListStmt, 0));
+        cJSON_AddNumberToObject(deviceIndice, "online", atoi((const char *)sqlite3_column_text(deviceListStmt, 1)));
+        cJSON_AddStringToObject(deviceIndice, "deviceType", (const char *)sqlite3_column_text(deviceListStmt, 2));
+
+        const char *dataStr = (const char *)sqlite3_column_text(deviceListStmt, 3);
+        if (dataStr && dataStr[0] == '[')
+        {
             cJSON *dataJSON = cJSON_Parse(dataStr);
-            if (dataJSON) {
+            if (dataJSON)
+            {
                 cJSON_AddItemToObject(deviceIndice, "data", dataJSON);
             }
-        } else if (dataStr) {
+        }
+        else if (dataStr)
+        {
             cJSON_AddNumberToObject(deviceIndice, "data", atoi(dataStr));
         }
-        
+
         cJSON_AddItemToArray(deviceArrayJSON, deviceIndice);
     }
-    
-    if ((sqlite3_finalize(deviceListStmt)) != SQLITE_OK) NIER_LOGE("SQLite", "Failed to finalize statement");
-    
+
+    if ((sqlite3_finalize(deviceListStmt)) != SQLITE_OK)
+        NIER_LOGE("SQLite", "Failed to finalize statement");
+
     char *result = cJSON_PrintUnformatted(deviceListJSON);
     cJSON_Delete(deviceListJSON);
     return result;

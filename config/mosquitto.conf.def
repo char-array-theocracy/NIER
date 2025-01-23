@@ -1,11 +1,11 @@
 listener 8883
 psk_hint test1
-psk_file /home/0___USER___0/NIER/keys/keys.psk
-allow_anonymous false
+psk_file 0___USER___0/NIER/keys/keys.psk
+allow_anonymous true
 
 tls_version tlsv1.2
 
-log_dest file /home/0___USER___0/NIER/logs/mosquitto.log
+log_dest file 0___USER___0/NIER/logs/mosquitto.log
 log_type error
 log_type warning
 log_type notice

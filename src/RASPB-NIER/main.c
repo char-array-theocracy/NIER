@@ -8,13 +8,13 @@
 #include <sqlite3.h>
 #include <openssl/rand.h>
 #include <openssl/hmac.h>
-#include "mongoose.h"
-#include "NIER.h"
 #include <cjson/cJSON.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include "mongoose.h"
+#include "NIER.h"
 
 #ifdef __GNUC__
 #define UNUSED __attribute__((unused))
@@ -96,6 +96,73 @@ const char *checkDevicesTable = "SELECT name FROM sqlite_master WHERE type='tabl
 const char *updateDeviceData = "UPDATE DEVICES SET DATA = ? WHERE ID = ?";
 const char *checkDeviceData = "SELECT DATA FROM DEVICES WHERE ID = ?;";
 
+int setupMosqBroker()
+{
+    const char *homeDirectory = getenv("HOME");
+    FILE *mosqBrokerConfDef = fopen("./config/mosquitto.conf.def", "r");
+    if (mosqBrokerConfDef == NULL)
+    {
+        NIER_LOGE("NIER", "Failed to open mosquitto config template file");
+        return -1;
+    }
+    char mosqBrokerConfDefText[4096] = {0};
+    size_t mosqBrokerConfDefTextReadLength = fread(mosqBrokerConfDefText, 1, 4095, mosqBrokerConfDef);
+    if (mosqBrokerConfDefTextReadLength < 50)
+    {
+        NIER_LOGE("NIER", "Failed to read mosquitto config template file");
+        return -1;
+    }
+    remove("./config/mosquitto.conf");
+    FILE *mosqBrokerConf = fopen("./config/mosquitto.conf", "w");
+    if (mosqBrokerConf == NULL)
+    {
+        NIER_LOGE("NIER", "Failed to open mosquitto config file");
+        return -1;
+    }
+    size_t dirPlaceholderLength = strlen("0___USER___0");
+    int occuranceCount = 0;
+    char *needleOccuranceCursor = mosqBrokerConfDefText;
+    while ((needleOccuranceCursor = strstr(needleOccuranceCursor, "0___USER___0")) != NULL)
+    {
+        needleOccuranceCursor += dirPlaceholderLength;
+        occuranceCount++;
+    }
+    int mosqBrokerConfLength = strlen(mosqBrokerConfDefText) + (strlen(homeDirectory) - dirPlaceholderLength) * occuranceCount + 1;
+    char *mosqBrokerConfText = malloc(mosqBrokerConfLength);
+    if (mosqBrokerConfText == NULL)
+    {
+        return -1;
+    }
+    char *needleCursor = mosqBrokerConfDefText;
+    char *needleCursorPrevious = mosqBrokerConfDefText;
+    char *mosqBrokerConfTextCursor = mosqBrokerConfText;
+    for (int i = 0; i < occuranceCount; i++)
+    {
+        needleCursor = strstr(needleCursorPrevious, "0___USER___0");
+
+        size_t prefixLen = needleCursor - needleCursorPrevious;
+        memcpy(mosqBrokerConfTextCursor, needleCursorPrevious, prefixLen);
+        mosqBrokerConfTextCursor += prefixLen;
+
+        size_t homeLen = strlen(homeDirectory);
+        memcpy(mosqBrokerConfTextCursor, homeDirectory, homeLen);
+        mosqBrokerConfTextCursor += homeLen;
+
+        needleCursor += dirPlaceholderLength;
+        needleCursorPrevious = needleCursor;
+    }
+    size_t remainingLen = strlen(needleCursorPrevious);
+    memcpy(mosqBrokerConfTextCursor, needleCursorPrevious, remainingLen);
+    mosqBrokerConfTextCursor += remainingLen;
+
+    fprintf(mosqBrokerConf, "%s", mosqBrokerConfText);
+    free(mosqBrokerConfText);
+    fclose(mosqBrokerConf);
+    fclose(mosqBrokerConfDef);
+
+    return system("mosquitto -c ./config/mosquitto.conf &");
+}
+
 void *udpBeaconTask(UNUSED void *arg)
 {
     struct ifaddrs *interfaces = NULL;
@@ -114,7 +181,9 @@ void *udpBeaconTask(UNUSED void *arg)
                     void *addr = &((struct sockaddr_in *)tempAddress->ifa_addr)->sin_addr;
                     inet_ntop(AF_INET, addr, ip, INET_ADDRSTRLEN);
                     NIER_LOGI("NIER", "UDP beacon: Interface: %s, IP Address: %s", tempAddress->ifa_name, ip);
-                    cJSON_AddStringToObject(broadcastMessageJSON, "ip", ip);
+                    char ipWithDomain[256];
+                    snprintf(ipWithDomain, 255, "mqtts://%s:8883", ip);
+                    cJSON_AddStringToObject(broadcastMessageJSON, "ip", ipWithDomain);
                 }
                 tempAddress = tempAddress->ifa_next;
             }
@@ -155,7 +224,7 @@ void *udpBeaconTask(UNUSED void *arg)
             {
                 NIER_LOGW("NIER", "Failed to send broadcast message");
             }
-            sleep(1);
+            sleep(2);
         }
     }
     freeifaddrs(interfaces);
@@ -772,12 +841,6 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    pthread_t udpBeaconTaskId;
-    if (pthread_create(&udpBeaconTaskId, NULL, udpBeaconTask, NULL) != 0)
-    {
-        NIER_LOGE("NIER", "Failed to create thread for udp beacon: %s", strerror(errno));
-    }
-
     if (argc > 1)
     {
         for (int i = 1; i < argc; i++)
@@ -794,7 +857,6 @@ int main(int argc, char **argv)
             }
         }
     }
-
     printf("\033[31m"
            "    _   __ ____ ______ ____ \n"
            "   / | / //  _// ____// __ \\\n"
@@ -803,6 +865,18 @@ int main(int argc, char **argv)
            "/_/ |_//___//_____//_/ |_|  \n"
            "\033[0m\n");
 
+    pthread_t udpBeaconTaskId;
+    if (pthread_create(&udpBeaconTaskId, NULL, udpBeaconTask, NULL) != 0)
+    {
+        NIER_LOGE("NIER", "Failed to create thread for udp beacon: %s", strerror(errno));
+    }
+
+    if (setupMosqBroker() != 0)
+    {
+        NIER_LOGE("NIER", "Failed to start mosquitto broker");
+        return -1;
+    }
+
     if (debugFlag == 1)
     {
         NIER_LOGD("NIER", "Debug mode activated");
@@ -810,10 +884,12 @@ int main(int argc, char **argv)
     if (sqlite3_threadsafe() == 0)
     {
         NIER_LOGE("SQLite", "SQLite is not compiled with thread safety!");
+        return -1;
     }
     if (sqlite3_open("database.sqlite3", &database))
     {
         NIER_LOGE("SQLite", "Couldn't open database: %s", sqlite3_errmsg(database));
+        return -1;
     }
     else
     {
