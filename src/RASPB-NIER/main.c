@@ -96,73 +96,17 @@ const char *checkDevicesTable = "SELECT name FROM sqlite_master WHERE type='tabl
 const char *updateDeviceData = "UPDATE DEVICES SET DATA = ? WHERE ID = ?";
 const char *checkDeviceData = "SELECT DATA FROM DEVICES WHERE ID = ?;";
 
-int setupMosqBroker()
-{
-    mkdir("./logs", 0755);
-    const char *homeDirectory = getenv("HOME");
-    FILE *mosqBrokerConfDef = fopen("./config/mosquitto.conf.def", "r");
-    if (mosqBrokerConfDef == NULL)
-    {
-        NIER_LOGE("NIER", "Failed to open mosquitto config template file");
-        return -1;
-    }
-    char mosqBrokerConfDefText[4096] = {0};
-    size_t mosqBrokerConfDefTextReadLength = fread(mosqBrokerConfDefText, 1, 4095, mosqBrokerConfDef);
-    if (mosqBrokerConfDefTextReadLength < 50)
-    {
-        NIER_LOGE("NIER", "Failed to read mosquitto config template file");
-        return -1;
-    }
-    remove("./config/mosquitto.conf");
-    FILE *mosqBrokerConf = fopen("./config/mosquitto.conf", "w");
-    if (mosqBrokerConf == NULL)
-    {
-        NIER_LOGE("NIER", "Failed to open mosquitto config file");
-        return -1;
-    }
-    size_t dirPlaceholderLength = strlen("0___USER___0");
-    int occuranceCount = 0;
-    char *needleOccuranceCursor = mosqBrokerConfDefText;
-    while ((needleOccuranceCursor = strstr(needleOccuranceCursor, "0___USER___0")) != NULL)
-    {
-        needleOccuranceCursor += dirPlaceholderLength;
-        occuranceCount++;
-    }
-    int mosqBrokerConfLength = strlen(mosqBrokerConfDefText) + (strlen(homeDirectory) - dirPlaceholderLength) * occuranceCount + 1;
-    char *mosqBrokerConfText = malloc(mosqBrokerConfLength);
-    if (mosqBrokerConfText == NULL)
-    {
-        return -1;
-    }
-    char *needleCursor = mosqBrokerConfDefText;
-    char *needleCursorPrevious = mosqBrokerConfDefText;
-    char *mosqBrokerConfTextCursor = mosqBrokerConfText;
-    for (int i = 0; i < occuranceCount; i++)
-    {
-        needleCursor = strstr(needleCursorPrevious, "0___USER___0");
-
-        size_t prefixLen = needleCursor - needleCursorPrevious;
-        memcpy(mosqBrokerConfTextCursor, needleCursorPrevious, prefixLen);
-        mosqBrokerConfTextCursor += prefixLen;
-
-        size_t homeLen = strlen(homeDirectory);
-        memcpy(mosqBrokerConfTextCursor, homeDirectory, homeLen);
-        mosqBrokerConfTextCursor += homeLen;
-
-        needleCursor += dirPlaceholderLength;
-        needleCursorPrevious = needleCursor;
-    }
-    size_t remainingLen = strlen(needleCursorPrevious);
-    memcpy(mosqBrokerConfTextCursor, needleCursorPrevious, remainingLen);
-    mosqBrokerConfTextCursor += remainingLen;
-
-    fprintf(mosqBrokerConf, "%s", mosqBrokerConfText);
-    free(mosqBrokerConfText);
-    fclose(mosqBrokerConf);
-    fclose(mosqBrokerConfDef);
-
-    return system("mosquitto -c ./config/mosquitto.conf &");
-}
+const char *createCamerasTable =
+    "CREATE TABLE IF NOT EXISTS CAMERAS ("
+    "CAMERA_NAME TEXT UNIQUE PRIMARY KEY,"
+    "RTSP_URL TEXT NOT NULL,"
+    "CONTROL_URL TEXT NOT NULL"
+    ") WITHOUT ROWID;";
+const char *insertCamera = "INSERT INTO CAMERAS (CAMERA_NAME, RTSP_URL, CONTROL_URL) VALUES (?, ?, ?);";
+const char *removeCamera = "DELETE FROM CAMERAS WHERE CAMERA_NAME = ?;";
+const char *listCameras = "SELECT CAMERA_NAME, RTSP_URL, CONTROL_URL FROM CAMERAS;";
+const char *checkCamerasTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='CAMERAS';";
+const char *checkCameraValues = "SELECT RTSP_URL, CONTROL_URL FROM CAMERAS WHERE CAMERA_NAME = ?;";
 
 void *udpBeaconTask(UNUSED void *arg)
 {
@@ -181,7 +125,7 @@ void *udpBeaconTask(UNUSED void *arg)
                     char ip[INET_ADDRSTRLEN];
                     void *addr = &((struct sockaddr_in *)tempAddress->ifa_addr)->sin_addr;
                     inet_ntop(AF_INET, addr, ip, INET_ADDRSTRLEN);
-                    NIER_LOGI("NIER", "UDP beacon: Interface: %s, IP Address: %s", tempAddress->ifa_name, ip);
+                    NIER_LOGI("NIER", "UDP beacon broadcasting IP: %s", ip);
                     char ipWithDomain[256];
                     snprintf(ipWithDomain, 255, "mqtts://%s:8883", ip);
                     cJSON_AddStringToObject(broadcastMessageJSON, "ip", ipWithDomain);
@@ -876,8 +820,10 @@ int main(int argc, char **argv)
     {
         NIER_LOGE("NIER", "Failed to start mosquitto broker");
         return -1;
+    } else {
+        NIER_LOGI("NIER", "Started MQTT broker");
+        sleep(1);
     }
-    sleep(1);
 
     if (debugFlag == 1)
     {
@@ -936,6 +882,25 @@ int main(int argc, char **argv)
     if (devicesListStmt)
     {
         sqlite3_finalize(devicesListStmt);
+    }
+
+    sqlite3_stmt *cameraListStmt = NULL;
+    if (sqlite3_prepare_v2(database, checkCamerasTable, -1, &cameraListStmt, 0) != SQLITE_OK)
+    {
+        NIER_LOGE("SQLite", "Failed to prepare statement: %s", sqlite3_errmsg(database));
+    }
+    if (cameraListStmt && sqlite3_step(cameraListStmt) != SQLITE_ROW)
+    {
+        NIER_LOGW("SQLite", "No CAMERAS table found, creating table for cameras");
+        char *errorMessage = NULL;
+        if (sqlite3_exec(database, createCamerasTable, NULL, NULL, &errorMessage) != SQLITE_OK)
+        {
+            NIER_LOGE("SQLite", "Failed to create table: %s", errorMessage);
+        }
+    }
+    if (cameraListStmt)
+    {
+        sqlite3_finalize(cameraListStmt);
     }
 
     sqlite3_stmt *sessionsCheckStmt = NULL;
@@ -1106,14 +1071,120 @@ int main(int argc, char **argv)
                     NIER_LOGE("SQLite", "Failed to prepare statement: %s", sqlite3_errmsg(database));
                 }
             }
+            else if (strncmp(userInput, "addCamera", 9) == 0)
+            {
+                char *userInputPointer = userInput + 10;
+                char *token = NULL;
+                if ((token = strtok(userInputPointer, " \n")) != NULL)
+                {
+                    do
+                    {
+                        char cameraName[256] = {0};
+                        char cameraRSTPUrl[256] = {0};
+                        char cameraControlUrl[256] = {0};
+                        strncpy(cameraName, token, 255);
+                        if ((token = strtok(NULL, " \n")) != NULL)
+                        {
+                            strncpy(cameraRSTPUrl, token, 255);
+                        }
+                        else
+                        {
+                            NIER_LOGW("NIER", "No camera RSTP URL provided");
+                        }
+                        if ((token = strtok(NULL, " \n")) != NULL)
+                        {
+                            strncpy(cameraControlUrl, token, 255);
+                        }
+                        else
+                        {
+                            NIER_LOGW("NIER", "No camera Control URL provided");
+                        }
+
+                        sqlite3_stmt *cameraInsertStmt;
+                        if (sqlite3_prepare_v2(database, insertCamera, -1, &cameraInsertStmt, NULL) == SQLITE_OK)
+                        {
+                            sqlite3_bind_text(cameraInsertStmt, 1, cameraName, -1, SQLITE_STATIC);
+                            sqlite3_bind_text(cameraInsertStmt, 2, cameraRSTPUrl, -1, SQLITE_STATIC);
+                            sqlite3_bind_text(cameraInsertStmt, 3, cameraControlUrl, -1, SQLITE_STATIC);
+                            if (sqlite3_step(cameraInsertStmt) != SQLITE_DONE)
+                            {
+                                NIER_LOGE("NIER", "Failed to insert camera: %s", sqlite3_errmsg(database));
+                            }
+                            if (sqlite3_finalize(cameraInsertStmt) != SQLITE_OK)
+                            {
+                                NIER_LOGE("NIER", "Failed to finalize camera insert statement: %s", sqlite3_errmsg(database));
+                            }
+                            NIER_LOGI("NIER", "Inserted camera: %s, RSTP URL: %s, Control URL: %s", cameraName, cameraRSTPUrl, cameraControlUrl);
+                        }
+                        else
+                        {
+                            NIER_LOGE("SQLite", "Failed to prepare statement: %s", sqlite3_errmsg(database));
+                        }
+                    } while ((token = strtok(NULL, " \n")) != NULL);
+                }
+            }
+            else if (strncmp(userInput, "deleteCamera", 12) == 0)
+            {
+                char *userInputPointer = userInput + 13;
+                char *token = NULL;
+                if ((token = strtok(userInputPointer, " \n")) != NULL)
+                {
+                    do
+                    {
+                        sqlite3_stmt *cameraRemoveStmt;
+                        if (sqlite3_prepare_v2(database, removeCamera, -1, &cameraRemoveStmt, NULL) == SQLITE_OK)
+                        {
+                            sqlite3_bind_text(cameraRemoveStmt, 1, token, -1, SQLITE_STATIC);
+                            if (sqlite3_step(cameraRemoveStmt) != SQLITE_DONE)
+                            {
+                                NIER_LOGE("NIER", "Failed to delete camera: %s", sqlite3_errmsg(database));
+                            }
+                            if (sqlite3_finalize(cameraRemoveStmt) != SQLITE_OK)
+                            {
+                                NIER_LOGE("NIER", "Failed to finalize statement: %s", sqlite3_errmsg(database));
+                            }
+                            NIER_LOGI("NIER", "Deleted camera: %s", token);
+                        }
+                        else
+                        {
+                            NIER_LOGE("SQLite", "Failed to prepare statement: %s", sqlite3_errmsg(database));
+                        }
+                    } while ((token = strtok(NULL, " \n")) != NULL);
+                }
+            }
+            else if (strncmp(userInput, "listCameras", 11) == 0)
+            {
+                sqlite3_stmt *listCamerasStmt;
+                if (sqlite3_prepare_v2(database, listCameras, -1, &listCamerasStmt, NULL) == SQLITE_OK)
+                {
+                    while (sqlite3_step(listCamerasStmt) == SQLITE_ROW)
+                    {
+                        const char *cameraName = (const char *)sqlite3_column_text(listCamerasStmt, 0);
+                        const char *cameraRSTPUrl = (const char *)sqlite3_column_text(listCamerasStmt, 1);
+                        const char *cameraControlUrl = (const char *)sqlite3_column_text(listCamerasStmt, 2);
+                        NIER_LOGI("NIER", "Camera: %s, RSTP URL: %s, Control URL: %s", cameraName, cameraRSTPUrl, cameraControlUrl);
+                    }
+                    if (sqlite3_finalize(listCamerasStmt) != SQLITE_OK)
+                    {
+                        NIER_LOGE("NIER", "Failed to finalize statement: %s", sqlite3_errmsg(database));
+                    }
+                }
+                else
+                {
+                    NIER_LOGE("SQLite", "Failed to prepare statement: %s", sqlite3_errmsg(database));
+                }
+            }
             else if (strncmp(userInput, "help", 4) == 0)
             {
                 printf("Commands:\n");
-                printf("  createUser <user1> <pass> ...    Create one or more users\n");
-                printf("  deleteUser <user1> ...    Delete one or more users\n");
-                printf("  listUsers                 List all users and their TOTP keys\n");
-                printf("  exit                      Exit program\n");
-                printf("  help                      Show this help\n");
+                printf("  createUser <user1> <pass> ...                   Create one or more users\n");
+                printf("  deleteUser <user1> ...                          Delete one or more users\n");
+                printf("  listUsers                                       List all users, passwords and their TOTP keys\n");
+                printf("  addCamera  <name> <rstp url> <control url> ...  Add one or more cameras\n");
+                printf("  deleteCamera <name> ...                         Delete one or more cameras\n");
+                printf("  listCameras                                     List all cameras, rstp urls and their control urls\n");
+                printf("  exit                                            Exit program\n");
+                printf("  help                                            Show this help\n");
             }
             else if (strncmp(userInput, "exit", 4) == 0)
             {

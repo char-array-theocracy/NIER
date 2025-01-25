@@ -417,3 +417,71 @@ char *getDeviceList()
     cJSON_Delete(deviceListJSON);
     return result;
 }
+
+int setupMosqBroker()
+{
+    mkdir("./logs", 0755);
+    const char *homeDirectory = getenv("HOME");
+    FILE *mosqBrokerConfDef = fopen("./config/mosquitto.conf.def", "r");
+    if (mosqBrokerConfDef == NULL)
+    {
+        NIER_LOGE("NIER", "Failed to open mosquitto config template file");
+        return -1;
+    }
+    char mosqBrokerConfDefText[4096] = {0};
+    size_t mosqBrokerConfDefTextReadLength = fread(mosqBrokerConfDefText, 1, 4095, mosqBrokerConfDef);
+    if (mosqBrokerConfDefTextReadLength < 50)
+    {
+        NIER_LOGE("NIER", "Failed to read mosquitto config template file");
+        return -1;
+    }
+    remove("./config/mosquitto.conf");
+    FILE *mosqBrokerConf = fopen("./config/mosquitto.conf", "w");
+    if (mosqBrokerConf == NULL)
+    {
+        NIER_LOGE("NIER", "Failed to open mosquitto config file");
+        return -1;
+    }
+    size_t dirPlaceholderLength = strlen("0___USER___0");
+    int occuranceCount = 0;
+    char *needleOccuranceCursor = mosqBrokerConfDefText;
+    while ((needleOccuranceCursor = strstr(needleOccuranceCursor, "0___USER___0")) != NULL)
+    {
+        needleOccuranceCursor += dirPlaceholderLength;
+        occuranceCount++;
+    }
+    int mosqBrokerConfLength = strlen(mosqBrokerConfDefText) + (strlen(homeDirectory) - dirPlaceholderLength) * occuranceCount + 1;
+    char *mosqBrokerConfText = malloc(mosqBrokerConfLength);
+    if (mosqBrokerConfText == NULL)
+    {
+        return -1;
+    }
+    char *needleCursor = mosqBrokerConfDefText;
+    char *needleCursorPrevious = mosqBrokerConfDefText;
+    char *mosqBrokerConfTextCursor = mosqBrokerConfText;
+    for (int i = 0; i < occuranceCount; i++)
+    {
+        needleCursor = strstr(needleCursorPrevious, "0___USER___0");
+
+        size_t prefixLen = needleCursor - needleCursorPrevious;
+        memcpy(mosqBrokerConfTextCursor, needleCursorPrevious, prefixLen);
+        mosqBrokerConfTextCursor += prefixLen;
+
+        size_t homeLen = strlen(homeDirectory);
+        memcpy(mosqBrokerConfTextCursor, homeDirectory, homeLen);
+        mosqBrokerConfTextCursor += homeLen;
+
+        needleCursor += dirPlaceholderLength;
+        needleCursorPrevious = needleCursor;
+    }
+    size_t remainingLen = strlen(needleCursorPrevious);
+    memcpy(mosqBrokerConfTextCursor, needleCursorPrevious, remainingLen);
+    mosqBrokerConfTextCursor += remainingLen;
+
+    fprintf(mosqBrokerConf, "%s", mosqBrokerConfText);
+    free(mosqBrokerConfText);
+    fclose(mosqBrokerConf);
+    fclose(mosqBrokerConfDef);
+
+    return system("mosquitto -c ./config/mosquitto.conf &");
+}

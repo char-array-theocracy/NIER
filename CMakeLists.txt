@@ -55,10 +55,39 @@ else()
     message(FATAL_ERROR "Mosquitto library not found.")
 endif()
 
+find_package(CURL REQUIRED)
+if(CURL_FOUND)
+    include_directories(${CURL_INCLUDE_DIRS})
+else()
+    message(FATAL_ERROR "libcurl not found. Please install libcurl-dev or equivalent package.")
+endif()
+
+find_library(AVCODEC_LIB avcodec PATHS /usr/lib /usr/local/lib /opt/local/lib)
+find_library(AVFORMAT_LIB avformat PATHS /usr/lib /usr/local/lib /opt/local/lib)
+find_library(AVUTIL_LIB avutil PATHS /usr/lib /usr/local/lib /opt/local/lib)
+
+if(AVCODEC_LIB AND AVFORMAT_LIB AND AVUTIL_LIB)
+    message(STATUS "FFmpeg libraries found.")
+    include_directories(/usr/include /usr/local/include)
+else()
+    message(FATAL_ERROR "FFmpeg libraries not found. Please install FFmpeg development packages.")
+endif()
+
 include_directories(SYSTEM /path/to/mongoose)
 
 file(GLOB RASPB_NIER_SOURCES "${PROJECT_SOURCE_DIR}/src/RASPB-NIER/*.c")
 add_executable(nier ${RASPB_NIER_SOURCES})
 target_include_directories(nier PUBLIC "${PROJECT_SOURCE_DIR}/src/RASPB-NIER")
-target_link_libraries(nier m sqlite3 pthread ${OPENSSL_LIBRARIES} ${MOSQUITTO_LIB} ${CJSON_LIBRARIES})
+target_link_libraries(nier 
+    m 
+    sqlite3 
+    pthread 
+    ${OPENSSL_LIBRARIES} 
+    ${MOSQUITTO_LIB} 
+    ${CJSON_LIBRARIES} 
+    ${CURL_LIBRARIES} 
+    ${AVCODEC_LIB} 
+    ${AVFORMAT_LIB} 
+    ${AVUTIL_LIB}
+)
 set_target_properties(nier PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")

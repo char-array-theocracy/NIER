@@ -33,6 +33,7 @@ void addWSConnection(struct mg_connection *c);
 void removeWSConnection(struct mg_connection *c); 
 void broadcastWSMessage(const char *message);
 char *getDeviceList();
+int setupMosqBroker();
 
 #ifdef __cplusplus
 }
