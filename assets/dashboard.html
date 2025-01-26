@@ -2,101 +2,129 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NIER - Dashboard</title>
-  <link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96" />
-  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
-  <link rel="shortcut icon" href="/icons/favicon.ico" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
-  <link rel="manifest" href="/icons/site.webmanifest" />
+  <link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96">
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+  <link rel="shortcut icon" href="/icons/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/icons/site.webmanifest">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script src="dashboardScript.js"></script>
   <script src="temperatureHumidityGraph.js"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet">
   <link rel="stylesheet" href="dashboardStyle.css">
 </head>
 
-<body>
+<body x-data="deviceTable()" x-init="initWebSocket()">
   <div x-data="{ currentPage: 0 }">
     <div class="contentBox devices" x-transition x-show="currentPage === 0">
-      <div x-data="deviceTable()" x-init="initWebSocket()">
-        <table class="deviceTable">
-          <thead>
+      <table class="deviceTable">
+        <thead>
+          <tr>
+            <th>Device</th>
+            <th>Status</th>
+            <th>Type</th>
+            <th>Connection Quality</th>
+            <th>Heap Usage</th>
+            <th>Uptime</th>
+          </tr>
+        </thead>
+        <template x-for="device in devices" :key="device.deviceId">
+          <tbody>
             <tr>
-              <th>Device</th>
-              <th>Status</th>
-              <th>Type</th>
-              <th>Connection Quality</th>
-              <th>Heap Usage</th>
-              <th>Uptime</th>
+              <td x-text="device.deviceId"></td>
+              <td x-show="device.online === 1">
+                <span class="material-symbols-outlined">bigtop_updates</span>
+              </td>
+              <td x-show="device.online === 0">
+                <span class="material-symbols-outlined">signal_disconnected</span>
+              </td>
+              <td x-text="device.deviceType"></td>
+              <td x-show="device.rssi >= -50">
+                <span class="material-symbols-outlined">signal_cellular_4_bar</span>
+              </td>
+              <td x-show="device.rssi < -50 && device.rssi >= -60">
+                <span class="material-symbols-outlined">signal_cellular_3_bar</span>
+              </td>
+              <td x-show="device.rssi < -60 && device.rssi >= -70">
+                <span class="material-symbols-outlined">signal_cellular_2_bar</span>
+              </td>
+              <td x-show="device.rssi < -70">
+                <span class="material-symbols-outlined">signal_cellular_1_bar</span>
+              </td>
+              <td x-text="device.heapPercent"></td>
+              <td x-text="device.uptime"></td>
             </tr>
-          </thead>
-          <template x-for="device in devices" :key="device.deviceId">
-            <tbody>
-              <tr>
-                <td x-text="device.deviceId"></td>
-                <td x-show="device.online === 1"> <span class="material-symbols-outlined"> bigtop_updates </span> </td>
-                <td x-show="device.online === 0"> <span class="material-symbols-outlined"> signal_disconnected </span>
-                </td>
-                <td x-text="device.deviceType"></td>
-                <td x-show="device.rssi >= -50"> <span class="material-symbols-outlined"> signal_cellular_4_bar </span>
-                </td>
-                <td x-show="device.rssi < -50 && device.rssi >= -60"> <span class="material-symbols-outlined">
-                    signal_cellular_3_bar </span> </td>
-                <td x-show="device.rssi < -60 && device.rssi >= -70"> <span class="material-symbols-outlined">
-                    signal_cellular_2_bar </span> </td>
-                <td x-show="device.rssi < -70"> <span class="material-symbols-outlined"> signal_cellular_1_bar </span>
-                </td>
-                <td x-text="device.heapPercent"></td>
-                <td x-text="device.uptime"></td>
-              </tr>
-              <tr class="expandedDataRow">
-                <td colspan="6">
-                  <div x-show="device.deviceType === 'SmartSwitch'">
-                    <div x-data="{
-                                    isActive: false,
-                                    init() {
-                                      this.isActive = (device.data === 1);
-                                      this.$watch(() => device.data, (newVal) => {
-                                        this.isActive = (newVal === 1);
-                                      });
-                                    }
-                                  }" class="buttonHolder" x-on:click="
-                                    isActive = !isActive;
-                                    window.deviceTableAlpine.relaySwitchState(device.deviceId, isActive ? 1 : 0); ">
-                      <div class="buttonCircle" x-bind:class="{ 'active': isActive }"></div>
-                      <input type="checkbox" class="checkbox">
-                    </div>
+            <tr class="expandedDataRow">
+              <td colspan="6">
+                <div x-show="device.deviceType === 'SmartSwitch'">
+                  <div
+                    x-data="{ isActive: false, init() { this.isActive = device.data === 1; this.$watch(() => device.data, val => { this.isActive = val === 1; }); } }"
+                    class="buttonHolder"
+                    x-on:click="isActive = !isActive; relaySwitchState(device.deviceId, isActive ? 1 : 0)">
+                    <div class="buttonCircle" x-bind:class="{ 'active': isActive }"></div>
+                    <input type="checkbox" class="checkbox">
                   </div>
-                  <div x-show="device.deviceType === 'TemperatureHumiditySensor'" x-data="chartData(device.data)" class="chartContainer"
-                    x-init="drawChart()">
-                    <canvas id="chart" width="300" height="200"></canvas>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </template>
-        </table>
-      </div>
+                </div>
+                <div x-show="device.deviceType === 'TemperatureHumiditySensor'" x-data="chartData(device.data)"
+                  class="chartContainer" x-init="drawChart()">
+                  <canvas id="chart" width="300" height="200"></canvas>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </template>
+      </table>
     </div>
-    <div class="contentBox system" x-transition x-cloak x-show="currentPage === 1">
-      System content...
+    <div class="contentBox cameras" x-transition x-cloak x-show="currentPage === 1">
+      <div class="cameraSelection">
+        <div class="cameraList">
+          <template x-for="camera in cameras" :key="camera">
+            <button class="cameraItem" x-on:click="selectCamera(camera)" x-text="camera"></button>
+          </template>
+        </div>
+      </div>
+      <div class="cameraDisplay">
+        <div class="cameraFeed">
+          <video x-ref="video" controls autoplay muted></video>
+        </div>
+        <div class="cameraConfig">
+          <h2>Camera Controls</h2>
+          <div class="ptzControls" x-show="selectedCamera">
+            <div class="arrowRow">
+              <button @mousedown="startMove('Up')" @mouseup="stopMove()" class="arrowButton">▲</button>
+            </div>
+            <div class="arrowRow">
+              <button @mousedown="startMove('Left')" @mouseup="stopMove()" class="arrowButton">◀</button>
+              <button @click="resetPosition()" class="arrowButton">⭕</button>
+              <button @mousedown="startMove('Right')" @mouseup="stopMove()" class="arrowButton">▶</button>
+            </div>
+            <div class="arrowRow">
+              <button @mousedown="startMove('Down')" @mouseup="stopMove()" class="arrowButton">▼</button>
+            </div>
+            <div>
+              <button @click="toggleIR(selectedCamera)" class="arrowButton">IR</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="contentBox terminal" x-transition x-cloak x-show="currentPage === 2">
-      <div id="log" class="terminalBox">
-      </div>
+      <div id="log" class="terminalBox"></div>
       <button id="clearLog">Clear Log</button>
     </div>
     <div class="sidebar">
-      <img class="logo" src="icons/icon.png" width="50"> </img>
+      <img class="logo" src="icons/icon.png" width="50">
       <button x-bind:class="currentPage === 0 ? 'active' : ''" x-on:click="currentPage = 0">
         <span class="material-symbols-outlined">google_home_devices</span>
       </button>
       <button x-bind:class="currentPage === 1 ? 'active' : ''" x-on:click="currentPage = 1">
-        <span class="material-symbols-outlined">dns</span>
+        <span class="material-symbols-outlined">videocam</span>
       </button>
       <button x-bind:class="currentPage === 2 ? 'active' : ''" x-on:click="currentPage = 2">
         <span class="material-symbols-outlined">terminal</span>

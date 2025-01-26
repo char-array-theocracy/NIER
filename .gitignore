@@ -5,3 +5,4 @@ nier
 build/
 database.sqlite3
 config/mosquitto.conf
+assets/camera/*

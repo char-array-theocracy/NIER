@@ -13,14 +13,10 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <ifaddrs.h>
+#include <curl/curl.h>
 #include "mongoose.h"
 #include "NIER.h"
-
-#ifdef __GNUC__
-#define UNUSED __attribute__((unused))
-#else
-#define UNUSED
-#endif
+#include "statements.h"
 
 #define LISTEN_URI "ws://localhost:8000"
 #define MQTT_BROKER_URI "0.0.0.0"
@@ -33,11 +29,6 @@
 #define MAX_WS_CONNECTIONS 50
 #define MAX_SENSOR_DATA_KB 64
 
-struct TOTPAttempt
-{
-    char ipHex[33];
-    time_t attemptTime;
-};
 pthread_mutex_t TOTPAttemptsLock;
 struct TOTPAttempt *TOTPAttempts;
 int TOTPAttemptsSize = 0;
@@ -50,63 +41,6 @@ struct mg_http_serve_opts serveOptions = {.root_dir = "./assets/"};
 struct mg_connection *WSConnections[MAX_WS_CONNECTIONS];
 int activeWSConnections;
 pthread_mutex_t WSConnectionsLock;
-
-const char *base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-const char *totpPasswordQuery = "SELECT PASSWORD, TOTP_CODE FROM USERS WHERE NAME = ?";
-const char *checkUsersTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='USERS';";
-const char *createUsersTable =
-    "CREATE TABLE IF NOT EXISTS USERS("
-    "NAME TEXT UNIQUE PRIMARY KEY,"
-    "PASSWORD TEXT NOT NULL,"
-    "TOTP_CODE TEXT NOT NULL"
-    ") WITHOUT ROWID;";
-const char *insertUserStatement = "INSERT INTO USERS (NAME, PASSWORD, TOTP_CODE) VALUES (?, ?, ?);";
-const char *deleteUserStatement = "DELETE FROM USERS WHERE NAME = ?";
-const char *listUsersQuery = "SELECT NAME, PASSWORD, TOTP_CODE FROM USERS";
-
-const char *checkSessionsTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='SESSIONS';";
-const char *createSessionsTable =
-    "CREATE TABLE IF NOT EXISTS SESSIONS("
-    "ID TEXT PRIMARY KEY,"
-    "USERNAME TEXT NOT NULL,"
-    "EXPIRATION INTEGER,"
-    "IP TEXT"
-    ") WITHOUT ROWID;";
-const char *insertSessionStatement = "INSERT INTO SESSIONS (ID, USERNAME, EXPIRATION, IP) VALUES (?, ?, ?, ?);";
-const char *checkSessionValidity = "SELECT USERNAME, EXPIRATION, IP FROM SESSIONS WHERE ID = ?";
-const char *deleteExpiredSession = "DELETE FROM SESSIONS WHERE ID = ?";
-
-const char *createDevicesTable =
-    "CREATE TABLE IF NOT EXISTS DEVICES("
-    "ID TEXT UNIQUE PRIMARY KEY,"
-    "ONLINE BOOLEAN NOT NULL,"
-    "DEVICE_TYPE TEXT NOT NULL,"
-    "DATA TEXT"
-    ") WITHOUT ROWID;";
-const char *listDevices =
-    "SELECT ID, "
-    "CASE WHEN ONLINE THEN '1' ELSE '0' END AS STATE, "
-    "DEVICE_TYPE, "
-    "DATA "
-    "FROM DEVICES;";
-const char *checkDeviceOnlineState = "SELECT ONLINE, DEVICE_TYPE FROM DEVICES WHERE ID = ?;";
-const char *updateDevice = "UPDATE DEVICES SET ONLINE = ?, DEVICE_TYPE = ? WHERE ID = ?;";
-const char *insertDevice = "INSERT INTO DEVICES (ID, ONLINE, DEVICE_TYPE, DATA) VALUES (?, ?, ?, ?);";
-const char *checkDevicesTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='DEVICES';";
-const char *updateDeviceData = "UPDATE DEVICES SET DATA = ? WHERE ID = ?";
-const char *checkDeviceData = "SELECT DATA FROM DEVICES WHERE ID = ?;";
-
-const char *createCamerasTable =
-    "CREATE TABLE IF NOT EXISTS CAMERAS ("
-    "CAMERA_NAME TEXT UNIQUE PRIMARY KEY,"
-    "RTSP_URL TEXT NOT NULL,"
-    "CONTROL_URL TEXT NOT NULL"
-    ") WITHOUT ROWID;";
-const char *insertCamera = "INSERT INTO CAMERAS (CAMERA_NAME, RTSP_URL, CONTROL_URL) VALUES (?, ?, ?);";
-const char *removeCamera = "DELETE FROM CAMERAS WHERE CAMERA_NAME = ?;";
-const char *listCameras = "SELECT CAMERA_NAME, RTSP_URL, CONTROL_URL FROM CAMERAS;";
-const char *checkCamerasTable = "SELECT name FROM sqlite_master WHERE type='table' AND name='CAMERAS';";
-const char *checkCameraValues = "SELECT RTSP_URL, CONTROL_URL FROM CAMERAS WHERE CAMERA_NAME = ?;";
 
 void *udpBeaconTask(UNUSED void *arg)
 {
@@ -504,9 +438,6 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             }
         }
 
-        if (isAuthenticated)
-            NIER_LOGI("NIER", "Authenticated connection: user: %s, ip: %s", userName, mgHexToAddr(addressHex));
-
         if (mg_match(hm->uri, mg_str("/dashboard"), NULL) && isAuthenticated)
         {
             mg_http_serve_file(c, hm, "./assets/dashboard.html", &serveOptions);
@@ -696,6 +627,254 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
             char *result = getDeviceList();
             mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
         }
+        if (strncmp(call, "listCameras", 11) == 0)
+        {
+            sqlite3_stmt *cameraListStmt;
+            cJSON *cameraListJSON = cJSON_CreateObject();
+            cJSON *cameraListJSONArray = cJSON_AddArrayToObject(cameraListJSON, "listCameras");
+            if (sqlite3_prepare_v2(database, listCameras, -1, &cameraListStmt, NULL) == SQLITE_OK)
+            {
+                while (sqlite3_step(cameraListStmt) == SQLITE_ROW)
+                {
+                    cJSON_AddItemToArray(cameraListJSONArray, cJSON_CreateString((const char *)sqlite3_column_text(cameraListStmt, 0)));
+                }
+                if (sqlite3_finalize(cameraListStmt) != SQLITE_OK)
+                {
+                    NIER_LOGE("SQLite", "Failed to finalize statement: %s", sqlite3_errmsg(database));
+                    cJSON_Delete(cameraListJSON);
+                    char result[] = "{\"error\":\"server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    return;
+                }
+                mg_ws_send(c, cJSON_PrintUnformatted(cameraListJSON), strlen(cJSON_PrintUnformatted(cameraListJSON)), WEBSOCKET_OP_TEXT);
+                cJSON_Delete(cameraListJSON);
+                return;
+            }
+            else
+            {
+                NIER_LOGE("SQLite", "Failed to prepare statement: %s", sqlite3_errmsg(database));
+                cJSON_Delete(cameraListJSON);
+                char result[] = "{\"error\":\"server error\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                return;
+            }
+        }
+        else if (strncmp(call, "cameraMessage", 13) == 0)
+        {
+            cJSON *camerNameJSON = cJSON_GetObjectItem(wsMessage, "camera");
+            if (!camerNameJSON)
+            {
+                char result[] = "{\"error\":\"invalid camera name\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                cJSON_Delete(wsMessage);
+                return;
+            }
+            cJSON *cameraCommandJSON = cJSON_GetObjectItem(wsMessage, "message");
+            if (!camerNameJSON)
+            {
+                char result[] = "{\"error\":\"invalid camera message\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                cJSON_Delete(wsMessage);
+                return;
+            }
+            cJSON *cameraCommandCallJSON = cJSON_GetObjectItem(cameraCommandJSON, "call");
+            if (!camerNameJSON)
+            {
+                char result[] = "{\"error\":\"invalid camera call\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                cJSON_Delete(wsMessage);
+                return;
+            }
+            const char *cameraCall = cJSON_GetStringValue(cameraCommandCallJSON);
+            const char *cameraName = cJSON_GetStringValue(camerNameJSON);
+            char cameraControlUrl[512];
+            char cameraControlUsername[512];
+            char cameraControlPassword[512];
+            sqlite3_stmt *cameraInfoStmt;
+            if (sqlite3_prepare_v2(database, checkCameraValues, -1, &cameraInfoStmt, NULL) == SQLITE_OK)
+            {
+                sqlite3_bind_text(cameraInfoStmt, 1, cameraName, -1, SQLITE_STATIC);
+                if (sqlite3_step(cameraInfoStmt) == SQLITE_ROW)
+                {
+                    strncpy(cameraControlUrl, (char *)sqlite3_column_text(cameraInfoStmt, 1), 511);
+                    strncpy(cameraControlUsername, (char *)sqlite3_column_text(cameraInfoStmt, 2), 511);
+                    strncpy(cameraControlPassword, (char *)sqlite3_column_text(cameraInfoStmt, 3), 511);
+                }
+                else
+                {
+                    char result[] = "{\"error\":\"unknown camera\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+                if (sqlite3_finalize(cameraInfoStmt) != SQLITE_OK)
+                {
+                    char result[] = "{\"error\":\"internal server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+            }
+            else
+            {
+                NIER_LOGE("SQLite", "Failed to prepare statement: %s", sqlite3_errmsg(database));
+                char result[] = "{\"error\":\"internal server error\"}";
+                mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                cJSON_Delete(wsMessage);
+                return;
+            }
+
+            if (strncmp(cameraCall, "moveLeft", 8) == 0)
+            {
+                char curlUrl[512];
+                snprintf(curlUrl, 511, "%s?cmd=ptzMoveLeft&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+
+                CURL *curl = curl_easy_init();
+                if (curl)
+                {
+                    curl_easy_setopt(curl, CURLOPT_URL, curlUrl);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullWriteCallback);
+                    if (curl_easy_perform(curl) != CURLE_OK)
+                    {
+                        NIER_LOGE("libCURL", "Failed to execute curl");
+                        char result[] = "{\"error\":\"internal server error\"}";
+                        mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                        cJSON_Delete(wsMessage);
+                        curl_easy_cleanup(curl);
+                        return;
+                    }
+                    curl_easy_cleanup(curl);
+                }
+                else
+                {
+                    NIER_LOGE("libCURL", "Failed to initialize easy curl");
+                    char result[] = "{\"error\":\"internal server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+            }
+            else if (strncmp(cameraCall, "moveRight", 9) == 0)
+            {
+                char curlUrl[512];
+                snprintf(curlUrl, 511, "%s?cmd=ptzMoveRight&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+
+                CURL *curl = curl_easy_init();
+                if (curl)
+                {
+                    curl_easy_setopt(curl, CURLOPT_URL, curlUrl);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullWriteCallback);
+                    if (curl_easy_perform(curl) != CURLE_OK)
+                    {
+                        NIER_LOGE("libCURL", "Failed to execute curl");
+                        char result[] = "{\"error\":\"internal server error\"}";
+                        mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                        cJSON_Delete(wsMessage);
+                        curl_easy_cleanup(curl);
+                        return;
+                    }
+                    curl_easy_cleanup(curl);
+                }
+                else
+                {
+                    NIER_LOGE("libCURL", "Failed to initialize easy curl");
+                    char result[] = "{\"error\":\"internal server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+            }
+            else if (strncmp(cameraCall, "moveUp", 6) == 0)
+            {
+                char curlUrl[512];
+                snprintf(curlUrl, 511, "%s?cmd=ptzMoveUp&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+
+                CURL *curl = curl_easy_init();
+                if (curl)
+                {
+                    curl_easy_setopt(curl, CURLOPT_URL, curlUrl);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullWriteCallback);
+                    if (curl_easy_perform(curl) != CURLE_OK)
+                    {
+                        NIER_LOGE("libCURL", "Failed to execute curl");
+                        char result[] = "{\"error\":\"internal server error\"}";
+                        mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                        cJSON_Delete(wsMessage);
+                        curl_easy_cleanup(curl);
+                        return;
+                    }
+                    curl_easy_cleanup(curl);
+                }
+                else
+                {
+                    NIER_LOGE("libCURL", "Failed to initialize easy curl");
+                    char result[] = "{\"error\":\"internal server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+            }
+            else if (strncmp(cameraCall, "moveDown", 8) == 0)
+            {
+                char curlUrl[512];
+                snprintf(curlUrl, 511, "%s?cmd=ptzMoveDown&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+
+                CURL *curl = curl_easy_init();
+                if (curl)
+                {
+                    curl_easy_setopt(curl, CURLOPT_URL, curlUrl);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullWriteCallback);
+                    if (curl_easy_perform(curl) != CURLE_OK)
+                    {
+                        NIER_LOGE("libCURL", "Failed to execute curl");
+                        char result[] = "{\"error\":\"internal server error\"}";
+                        mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                        cJSON_Delete(wsMessage);
+                        curl_easy_cleanup(curl);
+                        return;
+                    }
+                    curl_easy_cleanup(curl);
+                }
+                else
+                {
+                    NIER_LOGE("libCURL", "Failed to initialize easy curl");
+                    char result[] = "{\"error\":\"internal server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+            }
+            else if (strncmp(cameraCall, "moveStop", 8) == 0)
+            {
+                char curlUrl[512];
+                snprintf(curlUrl, 511, "%s?cmd=ptzStopRun&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+
+                CURL *curl = curl_easy_init();
+                if (curl)
+                {
+                    curl_easy_setopt(curl, CURLOPT_URL, curlUrl);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullWriteCallback);
+                    if (curl_easy_perform(curl) != CURLE_OK)
+                    {
+                        NIER_LOGE("libCURL", "Failed to execute curl");
+                        char result[] = "{\"error\":\"internal server error\"}";
+                        mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                        cJSON_Delete(wsMessage);
+                        curl_easy_cleanup(curl);
+                        return;
+                    }
+                    curl_easy_cleanup(curl);
+                }
+                else
+                {
+                    NIER_LOGE("libCURL", "Failed to initialize easy curl");
+                    char result[] = "{\"error\":\"internal server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+            }
+        }
         else if (strncmp(call, "relayMessage", 12) == 0)
         {
             cJSON *deviceIDJSON = cJSON_GetObjectItem(wsMessage, "deviceID");
@@ -820,7 +999,9 @@ int main(int argc, char **argv)
     {
         NIER_LOGE("NIER", "Failed to start mosquitto broker");
         return -1;
-    } else {
+    }
+    else
+    {
         NIER_LOGI("NIER", "Started MQTT broker");
         sleep(1);
     }
@@ -902,6 +1083,9 @@ int main(int argc, char **argv)
     {
         sqlite3_finalize(cameraListStmt);
     }
+
+    NIER_LOGI("NIER", "Starting camera streams");
+    startCameraStreams();
 
     sqlite3_stmt *sessionsCheckStmt = NULL;
     if (sqlite3_prepare_v2(database, checkSessionsTable, -1, &sessionsCheckStmt, 0) != SQLITE_OK)
@@ -1082,6 +1266,8 @@ int main(int argc, char **argv)
                         char cameraName[256] = {0};
                         char cameraRSTPUrl[256] = {0};
                         char cameraControlUrl[256] = {0};
+                        char cameraControlUsername[256] = {0};
+                        char cameraControlPassword[256] = {0};
                         strncpy(cameraName, token, 255);
                         if ((token = strtok(NULL, " \n")) != NULL)
                         {
@@ -1099,6 +1285,22 @@ int main(int argc, char **argv)
                         {
                             NIER_LOGW("NIER", "No camera Control URL provided");
                         }
+                        if ((token = strtok(NULL, " \n")) != NULL)
+                        {
+                            strncpy(cameraControlUsername, token, 255);
+                        }
+                        else
+                        {
+                            NIER_LOGW("NIER", "No camera Control username provided");
+                        }
+                        if ((token = strtok(NULL, " \n")) != NULL)
+                        {
+                            strncpy(cameraControlPassword, token, 255);
+                        }
+                        else
+                        {
+                            NIER_LOGW("NIER", "No camera Control password provided");
+                        }
 
                         sqlite3_stmt *cameraInsertStmt;
                         if (sqlite3_prepare_v2(database, insertCamera, -1, &cameraInsertStmt, NULL) == SQLITE_OK)
@@ -1106,6 +1308,8 @@ int main(int argc, char **argv)
                             sqlite3_bind_text(cameraInsertStmt, 1, cameraName, -1, SQLITE_STATIC);
                             sqlite3_bind_text(cameraInsertStmt, 2, cameraRSTPUrl, -1, SQLITE_STATIC);
                             sqlite3_bind_text(cameraInsertStmt, 3, cameraControlUrl, -1, SQLITE_STATIC);
+                            sqlite3_bind_text(cameraInsertStmt, 4, cameraControlUsername, -1, SQLITE_STATIC);
+                            sqlite3_bind_text(cameraInsertStmt, 5, cameraControlPassword, -1, SQLITE_STATIC);
                             if (sqlite3_step(cameraInsertStmt) != SQLITE_DONE)
                             {
                                 NIER_LOGE("NIER", "Failed to insert camera: %s", sqlite3_errmsg(database));
@@ -1162,7 +1366,9 @@ int main(int argc, char **argv)
                         const char *cameraName = (const char *)sqlite3_column_text(listCamerasStmt, 0);
                         const char *cameraRSTPUrl = (const char *)sqlite3_column_text(listCamerasStmt, 1);
                         const char *cameraControlUrl = (const char *)sqlite3_column_text(listCamerasStmt, 2);
-                        NIER_LOGI("NIER", "Camera: %s, RSTP URL: %s, Control URL: %s", cameraName, cameraRSTPUrl, cameraControlUrl);
+                        const char *cameraControlUsername = (const char *)sqlite3_column_text(listCamerasStmt, 3);
+                        const char *cameraControlPassword = (const char *)sqlite3_column_text(listCamerasStmt, 4);
+                        NIER_LOGI("NIER", "Camera: %s, RSTP URL: %s, Control URL: %s, Control username: %s, Control password: %s", cameraName, cameraRSTPUrl, cameraControlUrl, cameraControlUsername, cameraControlPassword);
                     }
                     if (sqlite3_finalize(listCamerasStmt) != SQLITE_OK)
                     {
@@ -1177,14 +1383,14 @@ int main(int argc, char **argv)
             else if (strncmp(userInput, "help", 4) == 0)
             {
                 printf("Commands:\n");
-                printf("  createUser <user1> <pass> ...                   Create one or more users\n");
-                printf("  deleteUser <user1> ...                          Delete one or more users\n");
-                printf("  listUsers                                       List all users, passwords and their TOTP keys\n");
-                printf("  addCamera  <name> <rstp url> <control url> ...  Add one or more cameras\n");
-                printf("  deleteCamera <name> ...                         Delete one or more cameras\n");
-                printf("  listCameras                                     List all cameras, rstp urls and their control urls\n");
-                printf("  exit                                            Exit program\n");
-                printf("  help                                            Show this help\n");
+                printf("  createUser <user1> <pass> ...                                        Create one or more users\n");
+                printf("  deleteUser <user1> ...                                               Delete one or more users\n");
+                printf("  listUsers                                                            List all users, passwords and their TOTP keys\n");
+                printf("  addCamera  <name> <rstp url> <ctrl url> <ctrl user> <ctrl pass> ...  Add one or more cameras, restart required for changes to take effect\n");
+                printf("  deleteCamera <name> ...                                              Delete one or more cameras, restart required for changes to take effect\n");
+                printf("  listCameras                                                          List all cameras, rstp urls and their control urls, control usernames, passwords\n");
+                printf("  exit                                                                 Exit program\n");
+                printf("  help                                                                 Show this help\n");
             }
             else if (strncmp(userInput, "exit", 4) == 0)
             {

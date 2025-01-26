@@ -62,17 +62,6 @@ else()
     message(FATAL_ERROR "libcurl not found. Please install libcurl-dev or equivalent package.")
 endif()
 
-find_library(AVCODEC_LIB avcodec PATHS /usr/lib /usr/local/lib /opt/local/lib)
-find_library(AVFORMAT_LIB avformat PATHS /usr/lib /usr/local/lib /opt/local/lib)
-find_library(AVUTIL_LIB avutil PATHS /usr/lib /usr/local/lib /opt/local/lib)
-
-if(AVCODEC_LIB AND AVFORMAT_LIB AND AVUTIL_LIB)
-    message(STATUS "FFmpeg libraries found.")
-    include_directories(/usr/include /usr/local/include)
-else()
-    message(FATAL_ERROR "FFmpeg libraries not found. Please install FFmpeg development packages.")
-endif()
-
 include_directories(SYSTEM /path/to/mongoose)
 
 file(GLOB RASPB_NIER_SOURCES "${PROJECT_SOURCE_DIR}/src/RASPB-NIER/*.c")
@@ -86,8 +75,5 @@ target_link_libraries(nier
     ${MOSQUITTO_LIB} 
     ${CJSON_LIBRARIES} 
     ${CURL_LIBRARIES} 
-    ${AVCODEC_LIB} 
-    ${AVFORMAT_LIB} 
-    ${AVUTIL_LIB}
 )
 set_target_properties(nier PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_SOURCE_DIR}")

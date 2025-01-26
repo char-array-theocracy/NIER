@@ -12,6 +12,12 @@
 extern "C" {
 #endif
 
+#ifdef __GNUC__
+#define UNUSED __attribute__((unused))
+#else
+#define UNUSED
+#endif
+
 extern int debugFlag;
 extern struct mg_str loginApiUri;
 extern sqlite3 *database;
@@ -34,6 +40,15 @@ void removeWSConnection(struct mg_connection *c);
 void broadcastWSMessage(const char *message);
 char *getDeviceList();
 int setupMosqBroker();
+
+struct TOTPAttempt
+{
+    char ipHex[33];
+    time_t attemptTime;
+};
+
+void startCameraStreams(); 
+size_t nullWriteCallback(UNUSED void *contents, size_t size, size_t nmemb, UNUSED void *userp);
 
 #ifdef __cplusplus
 }

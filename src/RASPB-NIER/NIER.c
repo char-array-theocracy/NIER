@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <cjson/cJSON.h>
+#include "statements.h"
 
 #define MAX_WS_CONNECTIONS 50
 
@@ -17,17 +18,10 @@ extern int debugFlag;
 extern struct mg_str loginApiUri;
 extern sqlite3 *database;
 
-struct TOTPAttempt
-{
-    char ipHex[33];
-    time_t attemptTime;
-};
 extern const char *insertSessionStatement;
 extern const char *checkSessionValidity;
 extern const char *deleteExpiredSession;
 extern const char *listDevices;
-
-static const char *base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
 extern pthread_mutex_t WSConnectionsLock;
 extern struct mg_connection *WSConnections[];
@@ -484,4 +478,49 @@ int setupMosqBroker()
     fclose(mosqBrokerConfDef);
 
     return system("mosquitto -c ./config/mosquitto.conf &");
+}
+
+void startCameraStreams()
+{
+    const char *homeDirectory = getenv("HOME");
+    sqlite3_stmt *cameraListStmt;
+    if (sqlite3_prepare_v2(database, listCameras, -1, &cameraListStmt, NULL) == SQLITE_OK)
+    {
+        while (sqlite3_step(cameraListStmt) == SQLITE_ROW)
+        {
+            char command[512] = {0};
+            char outputPath[512] = {0};
+            snprintf(outputPath, 511, "%s/NIER/assets/camera/%s", homeDirectory, sqlite3_column_text(cameraListStmt, 0));
+
+            /*TODO: add relaunch logic*/
+            snprintf(command, 511,
+                     "mkdir -p %s && "
+                     "ffmpeg -hide_banner -loglevel error -nostats -y "
+                     "-i \"%s\" "
+                     "-c copy -f hls "
+                     "-hls_time 1 -hls_list_size 21600 "
+                     "-hls_flags delete_segments "
+                     "-hls_segment_filename \"%s/segment%%05d.ts\" "
+                     "\"%s/playlist.m3u8\"&",
+                     outputPath, sqlite3_column_text(cameraListStmt, 1), outputPath, outputPath);
+
+            if (system(command) != 0)
+            {
+                NIER_LOGE("FFmpeg", "Failed to invoke ffmpeg command");
+            }
+        }
+        if (sqlite3_finalize(cameraListStmt) != SQLITE_OK)
+        {
+            NIER_LOGE("Failed to finalize statement: %s", sqlite3_errmsg(database));
+        }
+    }
+    else
+    {
+        NIER_LOGE("Failed to prepare statement: %s", sqlite3_errmsg(database));
+    }
+}
+
+size_t nullWriteCallback(UNUSED void *contents, size_t size, size_t nmemb, UNUSED void *userp)
+{
+    return size * nmemb;
 }

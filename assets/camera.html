@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>Camera Stream</title>
+</head>
+
+<body>
+  <h1>Live Camera Stream</h1>
+  <video id="video" controls autoplay muted style="width: 640px; height: 360px;"></video>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    const video = document.getElementById('video');
+    const hlsSource = '/camera/test/playlist.m3u8';
+
+    if (Hls.isSupported()) {
+      const hls = new Hls(
+        { debug: true }
+      );
+      hls.loadSource(hlsSource);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, function () {
+        video.play();
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = hlsSource;
+      video.addEventListener('loadedmetadata', function () {
+        video.play();
+      });
+    } else {
+      alert('Your browser does not support HLS playback.');
+    }
+  </script>
+</body>
+
+</html>
