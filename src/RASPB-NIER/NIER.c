@@ -498,9 +498,10 @@ void startCameraStreams()
                      "ffmpeg -hide_banner -loglevel error -nostats -y "
                      "-i \"%s\" "
                      "-c copy -f hls "
-                     "-hls_time 1 -hls_list_size 21600 "
-                     "-hls_flags delete_segments "
+                     "-hls_time 0.5 -hls_list_size 21600 "
+                     "-hls_flags delete_segments+append_list "
                      "-hls_segment_filename \"%s/segment%%05d.ts\" "
+                     "-hls_playlist_type event "
                      "\"%s/playlist.m3u8\"&",
                      outputPath, sqlite3_column_text(cameraListStmt, 1), outputPath, outputPath);
 
@@ -523,4 +524,11 @@ void startCameraStreams()
 size_t nullWriteCallback(UNUSED void *contents, size_t size, size_t nmemb, UNUSED void *userp)
 {
     return size * nmemb;
+}
+
+size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp)
+{
+    size_t totalSize = size * nmemb;
+    strncat((char *)userp, (char *)contents, totalSize);
+    return totalSize;
 }

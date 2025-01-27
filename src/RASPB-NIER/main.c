@@ -874,6 +874,104 @@ void httpHandler(struct mg_connection *c, int ev, void *ev_data)
                     return;
                 }
             }
+            else if (strncmp(cameraCall, "moveHome", 8) == 0)
+            {
+                char curlUrl[512];
+                snprintf(curlUrl, 511, "%s?cmd=ptzReset&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+
+                CURL *curl = curl_easy_init();
+                if (curl)
+                {
+                    curl_easy_setopt(curl, CURLOPT_URL, curlUrl);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullWriteCallback);
+                    if (curl_easy_perform(curl) != CURLE_OK)
+                    {
+                        NIER_LOGE("libCURL", "Failed to execute curl");
+                        char result[] = "{\"error\":\"internal server error\"}";
+                        mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                        cJSON_Delete(wsMessage);
+                        curl_easy_cleanup(curl);
+                        return;
+                    }
+                    curl_easy_cleanup(curl);
+                }
+                else
+                {
+                    NIER_LOGE("libCURL", "Failed to initialize easy curl");
+                    char result[] = "{\"error\":\"internal server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+            }
+            else if (strncmp(cameraCall, "toggleIR", 8) == 0)
+            {
+                char curlUrl[512];
+                snprintf(curlUrl, 511, "%s?cmd=getDevState&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+                char curlResponse[2056] = {0};
+                
+                CURL *curl = curl_easy_init();
+                if (curl)
+                {
+                    curl_easy_setopt(curl, CURLOPT_URL, curlUrl);
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
+                    curl_easy_setopt(curl, CURLOPT_WRITEDATA, curlResponse);
+                    if (curl_easy_perform(curl) != CURLE_OK)
+                    {
+                        NIER_LOGE("libCURL", "Failed to execute curl");
+                        char result[] = "{\"error\":\"internal server error\"}";
+                        mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                        cJSON_Delete(wsMessage);
+                        curl_easy_cleanup(curl);
+                        return;
+                    }
+                    curl_easy_cleanup(curl);
+                }
+                else
+                {
+                    NIER_LOGE("libCURL", "Failed to initialize easy curl");
+                    char result[] = "{\"error\":\"internal server error\"}";
+                    mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                    cJSON_Delete(wsMessage);
+                    return;
+                }
+                char *curlResponseCursor = strstr(curlResponse, "<infraLedState>");
+                if (curlResponseCursor) 
+                {
+                    curlResponseCursor += strlen("<infraLedState>");
+                    char IRStateString[3] = {0};
+                    snprintf(IRStateString, 2, "%s", curlResponseCursor);
+                    int IRState = atoi(IRStateString);
+                    char curlUrl[512];
+                    if (IRState == 1) snprintf(curlUrl, 511, "%s?cmd=closeInfraLed&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+                    else snprintf(curlUrl, 511, "%s?cmd=openInfraLed&usr=%s&pwd=%s", cameraControlUrl, cameraControlUsername, cameraControlPassword);
+                
+                    CURL *curl = curl_easy_init();
+                    if (curl)
+                    {
+                        curl_easy_setopt(curl, CURLOPT_URL, curlUrl);
+                        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nullWriteCallback);
+                        if (curl_easy_perform(curl) != CURLE_OK)
+                        {
+                            NIER_LOGE("libCURL", "Failed to execute curl");
+                            char result[] = "{\"error\":\"internal server error\"}";
+                            mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                            cJSON_Delete(wsMessage);
+                            curl_easy_cleanup(curl);
+                            return;
+                        }
+                        curl_easy_cleanup(curl);
+                    }
+                    else
+                    {
+                        NIER_LOGE("libCURL", "Failed to initialize easy curl");
+                        char result[] = "{\"error\":\"internal server error\"}";
+                        mg_ws_send(c, result, strlen(result), WEBSOCKET_OP_TEXT);
+                        cJSON_Delete(wsMessage);
+                        return;
+                    }
+                }
+            }
         }
         else if (strncmp(call, "relayMessage", 12) == 0)
         {

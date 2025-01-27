@@ -49,6 +49,7 @@ struct TOTPAttempt
 
 void startCameraStreams(); 
 size_t nullWriteCallback(UNUSED void *contents, size_t size, size_t nmemb, UNUSED void *userp);
+size_t writeCallback(void *contents, size_t size, size_t nmemb, void *userp);
 
 #ifdef __cplusplus
 }
