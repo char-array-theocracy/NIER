@@ -275,6 +275,9 @@ static void mqttEventHandler(void *arg, esp_event_base_t eventBase, int32_t even
     case MQTT_EVENT_CONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         {
+            char callsTopic[128];
+            snprintf(callsTopic, sizeof(callsTopic), "devices/%s/calls", deviceIdentifier);
+            esp_mqtt_client_subscribe(client, callsTopic, MQTT_QOS);
             cJSON *connectionMessage = cJSON_CreateObject();
             if (connectionMessage)
             {
@@ -420,9 +423,6 @@ static int identifyDevice(void)
 static void smartSwitch(void *pvParamaters)
 {
     esp_mqtt_client_handle_t client = *(esp_mqtt_client_handle_t *)pvParamaters;
-    char callsTopic[128];
-    snprintf(callsTopic, sizeof(callsTopic), "devices/%s/calls", deviceIdentifier);
-    esp_mqtt_client_subscribe(client, callsTopic, MQTT_QOS);
     gpio_config_t io_conf = {
         .pin_bit_mask = (1ULL << GPIO_NUM_0),
         .mode = GPIO_MODE_OUTPUT,
