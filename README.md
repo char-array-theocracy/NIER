@@ -1,4 +1,4 @@
-![](./assets/icons/web-app-manifest-512x512.png)
+![](./assets/icons/web-app-manifest-192x192.png)
 
 # Installation
 ## Dependencies:
