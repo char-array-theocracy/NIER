@@ -2,7 +2,6 @@
 #include <string.h>
 #include <errno.h>
 #include <time.h>
-#include <math.h>
 #include <pthread.h>
 #include <mosquitto.h>
 #include <sqlite3.h>

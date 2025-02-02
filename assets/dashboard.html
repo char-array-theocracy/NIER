@@ -1,143 +1,393 @@
 <!DOCTYPE html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NIER - Dashboard</title>
-  <link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96">
-  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
-  <link rel="shortcut icon" href="/icons/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
-  <link rel="manifest" href="/icons/site.webmanifest">
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script src="dashboardScript.js"></script>
-  <script src="temperatureHumidityGraph.js"></script>
-  <script src="https://unpkg.com/alpinejs" defer></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet">
-  <link rel="stylesheet" href="dashboardStyle.css">
-</head>
-
-<body x-data="deviceTable()" x-init="initWebSocket()">
-  <div x-data="{ currentPage: 0 }">
-    <div class="contentBox devices" x-transition x-show="currentPage === 0">
-      <table class="deviceTable">
-        <thead>
-          <tr>
-            <th>Device</th>
-            <th>Status</th>
-            <th>Type</th>
-            <th>Connection Quality</th>
-            <th>Heap Usage</th>
-            <th>Uptime</th>
-          </tr>
-        </thead>
-        <template x-for="device in devices" :key="device.deviceId">
-          <tbody>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>NIER - Dashboard</title>
+    <link rel="icon" type="image/png" href="/icons/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg" />
+    <link rel="shortcut icon" href="/icons/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="/icons/site.webmanifest" />
+    <link href="https://vjs.zencdn.net/7.20.3/video-js.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@400;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+    <link rel="stylesheet" href="dashboardStyle.css" />
+    <script src="dashboardScript.js"></script>
+    <script src="temperatureHumidityGraph.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/alpinejs" defer></script>
+    <script src="https://vjs.zencdn.net/7.20.3/video.min.js"></script>
+  </head>
+  <body x-data="deviceTable()" x-init="initWebSocket()">
+    <div x-data="{ currentPage: 0 }">
+      <!-- Devices Page -->
+      <div class="contentBox devices" x-transition x-show="currentPage === 0">
+        <table class="deviceTable">
+          <thead>
             <tr>
-              <td x-text="device.deviceId"></td>
-              <td x-show="device.online === 1">
-                <span class="material-symbols-outlined">bigtop_updates</span>
-              </td>
-              <td x-show="device.online === 0">
-                <span class="material-symbols-outlined">signal_disconnected</span>
-              </td>
-              <td x-text="device.deviceType"></td>
-              <td x-show="device.rssi >= -50">
-                <span class="material-symbols-outlined">signal_cellular_4_bar</span>
-              </td>
-              <td x-show="device.rssi < -50 && device.rssi >= -60">
-                <span class="material-symbols-outlined">signal_cellular_3_bar</span>
-              </td>
-              <td x-show="device.rssi < -60 && device.rssi >= -70">
-                <span class="material-symbols-outlined">signal_cellular_2_bar</span>
-              </td>
-              <td x-show="device.rssi < -70">
-                <span class="material-symbols-outlined">signal_cellular_1_bar</span>
-              </td>
-              <td x-text="device.heapPercent"></td>
-              <td x-text="device.uptime"></td>
+              <th>Device</th>
+              <th>Status</th>
+              <th>Type</th>
+              <th>Connection Quality</th>
+              <th>Heap Usage</th>
+              <th>Uptime</th>
             </tr>
-            <tr class="expandedDataRow">
-              <td colspan="6">
-                <div x-show="device.deviceType === 'SmartSwitch'">
-                  <div
-                    x-data="{ isActive: false, init() { this.isActive = device.data === 1; this.$watch(() => device.data, val => { this.isActive = val === 1; }); } }"
-                    class="buttonHolder"
-                    x-on:click="isActive = !isActive; relaySwitchState(device.deviceId, isActive ? 1 : 0)">
-                    <div class="buttonCircle" x-bind:class="{ 'active': isActive }"></div>
-                    <input type="checkbox" class="checkbox">
+          </thead>
+          <template x-for="device in devices" :key="device.deviceId">
+            <tbody>
+              <tr>
+                <td x-text="device.deviceId"></td>
+                <td>
+                  <span class="material-symbols-outlined" x-show="device.online === 1">bigtop_updates</span>
+                  <span class="material-symbols-outlined" x-show="device.online === 0">signal_disconnected</span>
+                </td>
+                <td x-text="device.deviceType"></td>
+                <td>
+                  <span class="material-symbols-outlined" x-show="device.rssi >= -50">signal_cellular_4_bar</span>
+                  <span class="material-symbols-outlined" x-show="device.rssi < -50 && device.rssi >= -60">signal_cellular_3_bar</span>
+                  <span class="material-symbols-outlined" x-show="device.rssi < -60 && device.rssi >= -70">signal_cellular_2_bar</span>
+                  <span class="material-symbols-outlined" x-show="device.rssi < -70">signal_cellular_1_bar</span>
+                </td>
+                <td x-text="device.heapPercent"></td>
+                <td x-text="device.uptime"></td>
+              </tr>
+              <tr class="expandedDataRow">
+                <td colspan="6">
+                  <!-- SmartSwitch Controls -->
+                  <div x-show="device.deviceType === 'SmartSwitch'" class="switch-controls">
+                    <!-- Toggle Button -->
+                    <div
+                      x-data="{ isActive: false, init() { this.isActive = device.data === 1; this.$watch(() => device.data, val => { this.isActive = val === 1; }); } }"
+                      class="buttonHolder"
+                      x-init="init()"
+                      @click="isActive = !isActive; relaySwitchState(device.deviceId, isActive ? 1 : 0)"
+                    >
+                      <div class="buttonCircle" :class="{ 'active': isActive }"></div>
+                      <input type="checkbox" class="checkbox" />
+                    </div>
+                    <!-- Schedule Control -->
+                    <div
+                      x-data="{
+                        showSchedule: false,
+                        schedule: {
+                          Monday: [],
+                          Tuesday: [],
+                          Wednesday: [],
+                          Thursday: [],
+                          Friday: [],
+                          Saturday: [],
+                          Sunday: []
+                        },
+                        submitSchedule(deviceId) {
+                          const messageObject = {
+                            call: 'relayMessage',
+                            deviceId: deviceId,
+                            message: { call: 'autoSwitch', data: this.schedule }
+                          };
+                          ws.send(JSON.stringify(messageObject));
+                          console.log('SENT:', messageObject);
+                          this.showSchedule = false;
+                        }
+                      }"
+                      class="schedule-control"
+                    >
+                      <button @click="showSchedule = !showSchedule" class="btn-common">Schedule</button>
+                      <!-- The schedule menu expands horizontally and overlays below the button -->
+                      <div x-show="showSchedule" x-transition class="schedule-menu">
+                        <template x-for="(frames, day) in schedule" :key="day">
+                          <div class="weekday-schedule">
+                            <h4 x-text="day"></h4>
+                            <template x-for="(frame, index) in frames" :key="index">
+                              <div class="time-frame">
+                                <input type="time" x-model="frame.start" />
+                                <input type="time" x-model="frame.end" />
+                                <button @click="frames.splice(index, 1)" class="btn-common">Remove</button>
+                              </div>
+                            </template>
+                            <button @click="frames.push({ start: '', end: '' })" class="btn-common">Add Time Frame</button>
+                          </div>
+                        </template>
+                        <button @click="submitSchedule(device.deviceId)" class="btn-common">Done</button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div x-show="device.deviceType === 'TemperatureHumiditySensor'" x-data="chartData(device.data)"
-                  class="chartContainer" x-init="drawChart()">
-                  <canvas id="chart" width="300" height="200"></canvas>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </template>
-      </table>
-    </div>
-    <div class="contentBox cameras" x-transition x-cloak x-show="currentPage === 1">
-      <div class="cameraSelection">
-        <div class="cameraList">
-          <template x-for="camera in cameras" :key="camera">
-            <button class="cameraItem" x-on:click="selectCamera(camera)" x-text="camera"></button>
+                  <!-- TemperatureHumiditySensor Chart -->
+                  <div
+                    x-show="device.deviceType === 'TemperatureHumiditySensor'"
+                    x-data="chartData(device.data)"
+                    class="chartContainer"
+                    x-init="drawChart()"
+                  >
+                    <canvas id="chart" width="300" height="200"></canvas>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
           </template>
-        </div>
+        </table>
       </div>
-      <div class="cameraDisplay">
-        <div class="cameraFeed">
-          <video x-ref="video" controls autoplay muted></video>
+
+      <!-- Cameras Page -->
+      <div class="contentBox cameras" x-transition x-cloak x-show="currentPage === 1">
+        <div class="cameraSelection">
+          <div class="cameraList">
+            <template x-for="camera in cameras" :key="camera">
+              <button class="cameraItem" @click="selectCamera(camera)" x-text="camera"></button>
+            </template>
+          </div>
         </div>
-        <div class="cameraConfig">
-          <h2>Camera Controls</h2>
-          <div class="ptzControls" x-show="selectedCamera">
-            <div class="arrowRow">
-              <button @mousedown="startMove('Up')" @mouseup="stopMove()" class="arrowButton">▲</button>
-            </div>
-            <div class="arrowRow">
-              <button @mousedown="startMove('Left')" @mouseup="stopMove()" class="arrowButton">◀</button>
-              <button @click="resetPosition()" class="arrowButton">⭕</button>
-              <button @mousedown="startMove('Right')" @mouseup="stopMove()" class="arrowButton">▶</button>
-            </div>
-            <div class="arrowRow">
-              <button @mousedown="startMove('Down')" @mouseup="stopMove()" class="arrowButton">▼</button>
-            </div>
-            <div>
-              <button @click="toggleIR(selectedCamera)" class="arrowButton">IR</button>
+        <div class="cameraDisplay">
+          <div class="cameraFeed">
+            <template x-if="selectedCamera">
+              <video x-ref="video" class="video-js vjs-default-skin" controls autoplay muted></video>
+            </template>
+            <template x-if="!selectedCamera">
+              <div class="blank-camera"></div>
+            </template>
+          </div>
+          <div class="cameraConfig">
+            <h2>Camera Controls</h2>
+            <div class="ptzControls" x-show="selectedCamera">
+              <div class="arrowRow">
+                <button @mousedown="startMove('Up')" @mouseup="stopMove()" class="arrowButton">▲</button>
+              </div>
+              <div class="arrowRow">
+                <button @mousedown="startMove('Left')" @mouseup="stopMove()" class="arrowButton">◀</button>
+                <button @click="resetPosition()" class="arrowButton">⭕</button>
+                <button @mousedown="startMove('Right')" @mouseup="stopMove()" class="arrowButton">▶</button>
+              </div>
+              <div class="arrowRow">
+                <button @mousedown="startMove('Down')" @mouseup="stopMove()" class="arrowButton">▼</button>
+              </div>
+              <div>
+                <button @click="toggleIR(selectedCamera)" class="arrowButton">IR</button>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-    <div class="contentBox terminal" x-transition x-cloak x-show="currentPage === 2">
-      <div id="log" class="terminalBox"></div>
-      <button id="clearLog">Clear Log</button>
-    </div>
-    <div class="sidebar">
-      <img class="logo" src="icons/icon.png" width="50">
-      <button x-bind:class="currentPage === 0 ? 'active' : ''" x-on:click="currentPage = 0">
-        <span class="material-symbols-outlined">google_home_devices</span>
-      </button>
-      <button x-bind:class="currentPage === 1 ? 'active' : ''" x-on:click="currentPage = 1">
-        <span class="material-symbols-outlined">videocam</span>
-      </button>
-      <button x-bind:class="currentPage === 2 ? 'active' : ''" x-on:click="currentPage = 2">
-        <span class="material-symbols-outlined">terminal</span>
-      </button>
-      <div class="separator"></div>
-      <a href="https://github.com/char-array-theocracy/NIER" target="_blank" class="linkButton github">
-        <span class="material-symbols-outlined">code</span>
-      </a>
-      <a href="/api/logout" class="linkButton logout">
-        <span class="material-symbols-outlined">logout</span>
-      </a>
-    </div>
-  </div>
-</body>
 
+      <!-- Terminal Page -->
+      <div class="contentBox terminal" x-transition x-cloak x-show="currentPage === 2">
+        <div id="log" class="terminalBox"></div>
+        <button id="clearLog" class="btn-common">Clear Log</button>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <img class="logo" src="icons/icon.png" width="50" />
+        <button :class="currentPage === 0 ? 'active' : ''" @click="currentPage = 0">
+          <span class="material-symbols-outlined">google_home_devices</span>
+        </button>
+        <button :class="currentPage === 1 ? 'active' : ''" @click="currentPage = 1">
+          <span class="material-symbols-outlined">videocam</span>
+        </button>
+        <button :class="currentPage === 2 ? 'active' : ''" @click="currentPage = 2">
+          <span class="material-symbols-outlined">terminal</span>
+        </button>
+        <div class="separator"></div>
+        <a href="https://github.com/char-array-theocracy/NIER" target="_blank" class="linkButton github">
+          <span class="material-symbols-outlined">code</span>
+        </a>
+        <a href="/api/logout" class="linkButton logout">
+          <span class="material-symbols-outlined">logout</span>
+        </a>
+      </div>
+    </div>
+
+    <script>
+      let ws = null;
+      let reconnectTimeout = null;
+      function formatTime(seconds) {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        return [hrs, mins, secs].map(value => String(value).padStart(2, '0')).join(':');
+      }
+      function deviceTable() {
+        return {
+          devices: [],
+          cameras: [],
+          selectedCamera: null,
+          videojsPlayer: null,
+          initWebSocket() {
+            if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN))
+              return;
+            const protocol = window.location.protocol === "https:" ? "wss://" : "ws://";
+            ws = new WebSocket(protocol + window.location.host + "/websocket");
+            ws.addEventListener("open", () => {
+              this.logMessage("Connected to WebSocket.");
+              if (reconnectTimeout) {
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = null;
+              }
+              ws.send('{"call":"listDevices"}');
+              ws.send('{"call":"listCameras"}');
+            });
+            ws.addEventListener("message", (event) => {
+              this.logMessage("RECEIVED: " + event.data);
+              try {
+                const receivedJSON = JSON.parse(event.data);
+                if ("listDevices" in receivedJSON) {
+                  const updatedDeviceList = receivedJSON.listDevices;
+                  this.devices = updatedDeviceList.map(newDevice => {
+                    const existing = this.devices.find(d => d.deviceId === newDevice.deviceId) || {};
+                    return { ...existing, ...newDevice };
+                  });
+                }
+                if ("listCameras" in receivedJSON) {
+                  this.cameras = receivedJSON.listCameras;
+                  if (this.cameras.length > 0 && !this.selectedCamera) {
+                    this.selectCamera(this.cameras[0]);
+                  }
+                }
+                if ("deviceStatus" in receivedJSON) {
+                  const statusUpdate = receivedJSON.deviceStatus;
+                  const targetIndex = this.devices.findIndex(
+                    (device) => device.deviceId === statusUpdate.deviceId
+                  );
+                  if (targetIndex !== -1) {
+                    this.devices[targetIndex] = {
+                      ...this.devices[targetIndex],
+                      rssi: statusUpdate.rssi,
+                      uptime: formatTime(statusUpdate.uptime),
+                      heapPercent: ((statusUpdate.heapUsed / statusUpdate.heapTotal) * 100).toFixed(2) + "%"
+                    };
+                    if (statusUpdate.data) {
+                      this.devices[targetIndex].data = statusUpdate.data;
+                    }
+                  } else {
+                    this.logMessage("Device with ID " + statusUpdate.deviceId + " not found in listDevices.");
+                  }
+                }
+              } catch (e) {
+                this.logMessage("Failed to parse JSON: " + e);
+              }
+            });
+            ws.addEventListener("error", (error) => {
+              this.logMessage("WebSocket error: " + error);
+            });
+            ws.addEventListener("close", () => {
+              this.logMessage("Disconnected from WebSocket. Reconnecting in 1 second...");
+              ws = null;
+              reconnectTimeout = setTimeout(() => this.initWebSocket(), 1000);
+            });
+          },
+          relaySwitchState(deviceId, state) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+              this.logMessage("WebSocket is not open, cannot send relay message.");
+              return;
+            }
+            const messageObject = {
+              call: "relayMessage",
+              deviceId: deviceId,
+              message: { call: "changeSwitchState", state: state }
+            };
+            ws.send(JSON.stringify(messageObject));
+            this.logMessage("SENT: " + JSON.stringify(messageObject));
+          },
+          selectCamera(cam) {
+            this.selectedCamera = cam;
+            const videoElement = this.$refs.video;
+            if (!videoElement) return;
+            if (this.videojsPlayer) {
+              this.videojsPlayer.dispose();
+              this.videojsPlayer = null;
+            }
+            videoElement.innerHTML = "";
+            const source = document.createElement("source");
+            source.src = "/camera/" + cam + "/playlist.m3u8";
+            source.type = "application/x-mpegURL";
+            videoElement.appendChild(source);
+            // Pass VHS options to help reduce live latency
+            this.videojsPlayer = videojs(videoElement, {
+              liveui: true,
+              autoplay: true,
+              controls: true,
+              muted: true,
+              html5: {
+                vhs: {
+                  liveSyncDuration: 1
+                }
+              }
+            });
+          },
+          startMove(direction) {
+            if (!this.selectedCamera || !ws || ws.readyState !== WebSocket.OPEN) {
+              this.logMessage("Cannot move camera, no camera selected or WebSocket not open.");
+              return;
+            }
+            const messageObject = {
+              call: "cameraMessage",
+              camera: this.selectedCamera,
+              message: { call: "move" + direction }
+            };
+            ws.send(JSON.stringify(messageObject));
+            this.logMessage("SENT: " + JSON.stringify(messageObject));
+          },
+          stopMove() {
+            if (!this.selectedCamera || !ws || ws.readyState !== WebSocket.OPEN) {
+              this.logMessage("Cannot stop move, no camera selected or WebSocket not open.");
+              return;
+            }
+            const messageObject = {
+              call: "cameraMessage",
+              camera: this.selectedCamera,
+              message: { call: "moveStop" }
+            };
+            ws.send(JSON.stringify(messageObject));
+            this.logMessage("SENT: " + JSON.stringify(messageObject));
+          },
+          resetPosition() {
+            if (!this.selectedCamera || !ws || ws.readyState !== WebSocket.OPEN) {
+              this.logMessage("Cannot reset camera, no camera selected or WebSocket not open.");
+              return;
+            }
+            const messageObject = {
+              call: "cameraMessage",
+              camera: this.selectedCamera,
+              message: { call: "moveHome" }
+            };
+            ws.send(JSON.stringify(messageObject));
+            this.logMessage("SENT: " + JSON.stringify(messageObject));
+          },
+          toggleIR(camera) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+              this.logMessage("WebSocket is not open, cannot send IR toggle message.");
+              return;
+            }
+            const messageObject = {
+              call: "cameraMessage",
+              camera: camera,
+              message: { call: "toggleIR" }
+            };
+            ws.send(JSON.stringify(messageObject));
+            this.logMessage("SENT: " + JSON.stringify(messageObject));
+          },
+          logMessage(message) {
+            const logContainer = document.getElementById("log");
+            if (logContainer) {
+              const messageDiv = document.createElement("div");
+              messageDiv.textContent = message;
+              logContainer.appendChild(messageDiv);
+              logContainer.scrollTop = logContainer.scrollHeight;
+            }
+          }
+        };
+      }
+      document.addEventListener("DOMContentLoaded", () => {
+        const clearButton = document.getElementById("clearLog");
+        if (clearButton) {
+          clearButton.addEventListener("click", () => {
+            const logContainer = document.getElementById("log");
+            if (logContainer) {
+              logContainer.innerHTML = "";
+            }
+          });
+        }
+      });
+    </script>
+  </body>
 </html>
+
